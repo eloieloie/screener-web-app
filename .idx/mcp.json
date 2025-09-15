@@ -1,12 +1,18 @@
 {
   "mcpServers": {
     "firebase": {
-      "command": "npx",
+      "command": "timeout",
       "args": [
+        "30",
+        "npx",
         "-y",
-        "firebase-tools@latest",
+        "firebase-tools@13.21.0",
         "experimental:mcp"
-      ]
+      ],
+      "env": {
+        "NODE_OPTIONS": "--max-old-space-size=2048",
+        "FIREBASE_CLI_EXPERIMENTS": "mcp"
+      }
     }
   }
 }
