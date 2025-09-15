@@ -1,0 +1,231 @@
+/* StockCard.css */
+.stock-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.stock-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.stock-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+}
+
+.stock-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.stock-info {
+  flex: 1;
+}
+
+.stock-symbol {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #333;
+  margin: 0 0 0.25rem 0;
+  letter-spacing: 0.5px;
+}
+
+.stock-name {
+  color: #666;
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+.remove-btn {
+  background: #ff4757;
+  color: white;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.remove-btn:hover {
+  background: #ff3838;
+  transform: scale(1.1);
+}
+
+.stock-price-section {
+  margin: 1.5rem 0;
+}
+
+.price-display {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0.5rem;
+  border-radius: 8px;
+}
+
+.price-display:hover {
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.current-price {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #333;
+  display: block;
+}
+
+.edit-hint {
+  font-size: 0.75rem;
+  color: #999;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  display: block;
+  margin-top: 0.25rem;
+}
+
+.price-display:hover .edit-hint {
+  opacity: 1;
+}
+
+.price-edit {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.price-input {
+  font-size: 1.5rem;
+  font-weight: 600;
+  border: 2px solid #667eea;
+  border-radius: 8px;
+  padding: 0.5rem;
+  flex: 1;
+  outline: none;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.price-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.save-btn, .cancel-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.save-btn {
+  background: #2ed573;
+  color: white;
+}
+
+.save-btn:hover {
+  background: #24c661;
+}
+
+.cancel-btn {
+  background: #ff6b7a;
+  color: white;
+}
+
+.cancel-btn:hover {
+  background: #ff5568;
+}
+
+.stock-changes {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.change {
+  font-weight: 600;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.change.positive {
+  background: rgba(46, 213, 115, 0.1);
+  color: #2ed573;
+}
+
+.change.negative {
+  background: rgba(255, 107, 122, 0.1);
+  color: #ff6b7a;
+}
+
+.stock-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.stat label {
+  color: #666;
+  font-weight: 500;
+}
+
+.stat span {
+  color: #333;
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .stock-card {
+    padding: 1rem;
+  }
+  
+  .current-price {
+    font-size: 1.5rem;
+  }
+  
+  .price-input {
+    font-size: 1.2rem;
+  }
+  
+  .stock-changes {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+}
