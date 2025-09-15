@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Stock } from '../types/Stock'
+import { formatVolume } from '../services/indianStockAPI'
 import './StockCard.css'
 
 interface StockCardProps {
@@ -20,15 +21,29 @@ const StockCard = ({ stock, onRemove, onUpdatePrice }: StockCardProps) => {
     setIsEditing(false)
   }
 
-  const formatPrice = (price: number) => `$${price.toFixed(2)}`
-  const formatChange = (change: number) => change >= 0 ? `+${change.toFixed(2)}` : change.toFixed(2)
+  const formatPrice = (price: number) => `₹${price.toFixed(2)}`
+  const formatChange = (change: number) => change >= 0 ? `+₹${change.toFixed(2)}` : `-₹${Math.abs(change).toFixed(2)}`
   const formatChangePercent = (percent: number) => `${percent >= 0 ? '+' : ''}${percent.toFixed(2)}%`
 
   return (
     <div className="stock-card">
       <div className="stock-header">
         <div className="stock-info">
-          <h3 className="stock-symbol">{stock.symbol}</h3>
+          <h3 className="stock-symbol">
+            {stock.symbol}
+            {stock.exchange && (
+              <span className="exchange-badge" style={{
+                marginLeft: '8px',
+                fontSize: '10px',
+                background: stock.exchange === 'NSE' ? '#0066cc' : '#ff6600',
+                color: 'white',
+                padding: '2px 6px',
+                borderRadius: '4px'
+              }}>
+                {stock.exchange}
+              </span>
+            )}
+          </h3>
           <p className="stock-name">{stock.name}</p>
         </div>
         <button className="remove-btn" onClick={onRemove} title="Remove stock">
@@ -55,7 +70,7 @@ const StockCard = ({ stock, onRemove, onUpdatePrice }: StockCardProps) => {
         ) : (
           <div className="price-display" onClick={() => setIsEditing(true)}>
             <span className="current-price">{formatPrice(stock.price)}</span>
-            <span className="edit-hint">Click to edit</span>
+            <span className="edit-hint">Click to refresh</span>
           </div>
         )}
       </div>
@@ -73,12 +88,24 @@ const StockCard = ({ stock, onRemove, onUpdatePrice }: StockCardProps) => {
         <div className="stock-stats">
           <div className="stat">
             <label>Volume:</label>
-            <span>{stock.volume.toLocaleString()}</span>
+            <span>{formatVolume(stock.volume)}</span>
           </div>
           {stock.marketCap && (
             <div className="stat">
               <label>Market Cap:</label>
               <span>{stock.marketCap}</span>
+            </div>
+          )}
+          {stock.dayHigh && stock.dayLow && (
+            <div className="stat">
+              <label>Day Range:</label>
+              <span>₹{stock.dayLow.toFixed(2)} - ₹{stock.dayHigh.toFixed(2)}</span>
+            </div>
+          )}
+          {stock.fiftyTwoWeekHigh && stock.fiftyTwoWeekLow && (
+            <div className="stat">
+              <label>52W Range:</label>
+              <span>₹{stock.fiftyTwoWeekLow.toFixed(2)} - ₹{stock.fiftyTwoWeekHigh.toFixed(2)}</span>
             </div>
           )}
         </div>
