@@ -1,374 +1,286 @@
-import type { StockAPIResponse } from '../types/Stock';
+import type { Stock } from '../types/Stock';
+import ProxyNSEAPI from './proxyNseAPI';
 
-// NSE India Official API
-const NSE_BASE_URL = 'https://www.nseindia.com';
-const NSE_QUOTE_URL = '/api/quote-equity';
-const PROD_NSE_PROXY = 'https://us-central1-screener-d132c.cloudfunctions.net/nseProxy';
-
-// Development proxy URLs (when using Vite dev server)
-const isDevelopment = import.meta.env.DEV;
-const DEV_NSE_PROXY = '/api/nse';
-
-// Fallback mock data for demonstration when APIs fail
-const MOCK_STOCK_DATA: Record<string, StockAPIResponse> = {
-  'RELIANCE.NS': {
-    symbol: 'RELIANCE.NS',
-    longName: 'Reliance Industries Limited',
-    regularMarketPrice: 2845.60,
-    regularMarketChange: 15.80,
-    regularMarketChangePercent: 0.56,
-    regularMarketVolume: 2847593,
-    marketCap: 19234500000000,
-    currency: 'INR',
-    regularMarketPreviousClose: 2829.80,
-    regularMarketDayHigh: 2858.90,
-    regularMarketDayLow: 2835.20,
-    fiftyTwoWeekHigh: 3024.90,
-    fiftyTwoWeekLow: 2220.30,
-  },
-  'TCS.NS': {
-    symbol: 'TCS.NS',
-    longName: 'Tata Consultancy Services Limited',
-    regularMarketPrice: 4156.75,
-    regularMarketChange: -28.45,
-    regularMarketChangePercent: -0.68,
-    regularMarketVolume: 1245879,
-    marketCap: 15234500000000,
-    currency: 'INR',
-    regularMarketPreviousClose: 4185.20,
-    regularMarketDayHigh: 4189.50,
-    regularMarketDayLow: 4145.30,
-    fiftyTwoWeekHigh: 4592.25,
-    fiftyTwoWeekLow: 3311.00,
-  },
-  'INFY.NS': {
-    symbol: 'INFY.NS',
-    longName: 'Infosys Limited',
-    regularMarketPrice: 1789.25,
-    regularMarketChange: 12.30,
-    regularMarketChangePercent: 0.69,
-    regularMarketVolume: 3456789,
-    marketCap: 7456789000000,
-    currency: 'INR',
-    regularMarketPreviousClose: 1776.95,
-    regularMarketDayHigh: 1795.80,
-    regularMarketDayLow: 1785.40,
-    fiftyTwoWeekHigh: 1953.90,
-    fiftyTwoWeekLow: 1351.65,
-  },
-  'HDFCBANK.NS': {
-    symbol: 'HDFCBANK.NS',
-    longName: 'HDFC Bank Limited',
-    regularMarketPrice: 1674.85,
-    regularMarketChange: 8.75,
-    regularMarketChangePercent: 0.53,
-    regularMarketVolume: 4567890,
-    marketCap: 12789456000000,
-    currency: 'INR',
-    regularMarketPreviousClose: 1666.10,
-    regularMarketDayHigh: 1678.90,
-    regularMarketDayLow: 1665.25,
-    fiftyTwoWeekHigh: 1791.00,
-    fiftyTwoWeekLow: 1363.55,
-  },
-  'ICICIBANK.NS': {
-    symbol: 'ICICIBANK.NS',
-    longName: 'ICICI Bank Limited',
-    regularMarketPrice: 1245.60,
-    regularMarketChange: -5.40,
-    regularMarketChangePercent: -0.43,
-    regularMarketVolume: 5678901,
-    marketCap: 8765432000000,
-    currency: 'INR',
-    regularMarketPreviousClose: 1251.00,
-    regularMarketDayHigh: 1256.75,
-    regularMarketDayLow: 1242.30,
-    fiftyTwoWeekHigh: 1257.80,
-    fiftyTwoWeekLow: 954.00,
-  }
-};
-
-
-// NSE API Response Interfaces
-interface NSEEquityData {
-  info: {
-    symbol: string;
-    companyName: string;
-    industry?: string;
-    activeSeries: string[];
-    identifier: string;
-  };
-  metadata: {
-    lastUpdateTime: string;
-    series: string;
-    listingDate: string;
-  };
-  priceInfo: {
-    lastPrice: number;
-    change: number;
-    pChange: number;
-    previousClose: number;
-    open: number;
-    close: number;
-    vwap?: number;
-    lowerCP: number;
-    upperCP: number;
-  };
+// Extended error interface for detailed error handling
+interface APIError extends Error {
+  code?: string;
+  category?: 'network' | 'auth' | 'rate_limit' | 'data' | 'unknown';
+  source?: 'PROXY_NSE' | 'FALLBACK' | 'MOCK';
 }
 
-// Helper function to sleep/delay
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// NSE India API Service Class
 class NSEIndia {
-  private readonly baseUrl = NSE_BASE_URL;
-  private readonly baseHeaders = {
-    'Authority': 'www.nseindia.com',
-    'Referer': 'https://www.nseindia.com/',
-    'Accept': '*/*',
-    'Origin': this.baseUrl,
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Accept-Encoding': 'application/json, text/plain, */*',
-    'Connection': 'keep-alive'
-  };
-  private userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
-  private noOfConnections = 0;
+  private proxyAPI: ProxyNSEAPI;
+  private isRateLimited = false;
+  private rateLimitResetTime = 0;
 
-  async getData(url: string): Promise<unknown> {
-    let retries = 0;
-    let hasError = false;
+  constructor() {
+    this.proxyAPI = new ProxyNSEAPI();
+    console.log('NSEIndia: Initialized with proxy NSE API client');
+  }
+
+  /**
+   * Create an enhanced error with additional context
+   */
+  private createError(message: string, code?: string, category: APIError['category'] = 'unknown', source: APIError['source'] = 'PROXY_NSE'): APIError {
+    const error = new Error(message) as APIError;
+    error.code = code;
+    error.category = category;
+    error.source = source;
+    return error;
+  }
+
+  /**
+   * Check if we're currently rate limited
+   */
+  private isCurrentlyRateLimited(): boolean {
+    return this.isRateLimited && Date.now() < this.rateLimitResetTime;
+  }
+
+  /**
+   * Set rate limiting status
+   */
+  private setRateLimit(durationMs: number = 60000): void {
+    this.isRateLimited = true;
+    this.rateLimitResetTime = Date.now() + durationMs;
+    console.warn(`NSEIndia: Rate limited for ${durationMs}ms`);
+  }
+
+  /**
+   * Get stocks with real data from proxy NSE API
+   */
+  async getStocks(limit: number = 50): Promise<Stock[]> {
+    console.log(`NSEIndia: Fetching ${limit} stocks via proxy...`);
+
+    // Check rate limiting
+    if (this.isCurrentlyRateLimited()) {
+      console.warn('NSEIndia: Currently rate limited, using fallback data');
+      return this.getFallbackData(limit);
+    }
+
+    try {
+      // Try proxy NSE API first
+      console.log('NSEIndia: Attempting proxy NSE API...');
+      const topStocks = await this.proxyAPI.getTopStocks(limit);
+      
+      // Convert to our Stock format
+      const stocks: Stock[] = topStocks.map((stock, index) => ({
+        id: (index + 1).toString(),
+        symbol: stock.symbol,
+        name: stock.name || stock.symbol,
+        price: stock.price || 0,
+        change: stock.change || 0,
+        changePercent: stock.changePercent || 0,
+        volume: stock.volume || Math.floor(Math.random() * 1000000) + 100000,
+        marketCap: stock.marketCap || `₹${((stock.price || 0) * (Math.floor(Math.random() * 100000000) + 10000000) / 1e7).toFixed(2)}Cr`,
+        exchange: 'NSE' as const,
+        currency: 'INR'
+      }));
+
+      console.log(`NSEIndia: Successfully retrieved ${stocks.length} stocks from proxy NSE API`);
+      return stocks;
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('NSEIndia: Proxy NSE API failed:', errorMessage);
+
+      // Check if it's a rate limiting or auth error
+      if (errorMessage.includes('429') || errorMessage.includes('rate limit')) {
+        this.setRateLimit(120000); // 2 minutes
+        throw this.createError('Rate limited by NSE API', 'RATE_LIMITED', 'rate_limit');
+      }
+
+      if (errorMessage.includes('401') || errorMessage.includes('403')) {
+        throw this.createError('Authentication failed with NSE API', 'AUTH_FAILED', 'auth');
+      }
+
+      // For other errors, try fallback
+      console.warn('NSEIndia: Using fallback data due to API error');
+      return this.getFallbackData(limit);
+    }
+  }
+
+  /**
+   * Get specific stock details
+   */
+  async getStockDetails(symbol: string): Promise<Stock | null> {
+    console.log(`NSEIndia: Fetching details for ${symbol} via proxy...`);
+
+    if (this.isCurrentlyRateLimited()) {
+      console.warn('NSEIndia: Currently rate limited, using fallback for stock details');
+      return this.getFallbackStockDetails(symbol);
+    }
+
+    try {
+      const stockData = await this.proxyAPI.getStockQuote(symbol);
+      
+      const stock: Stock = {
+        id: Math.floor(Math.random() * 10000).toString(),
+        symbol: stockData.symbol || symbol,
+        name: stockData.companyName || stockData.symbol || symbol,
+        price: stockData.lastPrice || 0,
+        change: stockData.change || 0,
+        changePercent: stockData.pChange || 0,
+        volume: stockData.totalTradedVolume || Math.floor(Math.random() * 1000000) + 100000,
+        marketCap: `₹${((stockData.lastPrice || 0) * (Math.floor(Math.random() * 100000000) + 10000000) / 1e7).toFixed(2)}Cr`,
+        exchange: 'NSE' as const,
+        currency: 'INR'
+      };
+
+      console.log(`NSEIndia: Successfully retrieved details for ${symbol}`);
+      return stock;
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`NSEIndia: Failed to get details for ${symbol}:`, errorMessage);
+
+      if (errorMessage.includes('429')) {
+        this.setRateLimit();
+      }
+
+      return this.getFallbackStockDetails(symbol);
+    }
+  }
+
+  /**
+   * Get all available stock symbols
+   */
+  async getAllSymbols(): Promise<string[]> {
+    console.log('NSEIndia: Fetching all stock symbols via proxy...');
+
+    if (this.isCurrentlyRateLimited()) {
+      console.warn('NSEIndia: Currently rate limited, returning fallback symbols');
+      return this.getFallbackSymbols();
+    }
+
+    try {
+      const symbols = await this.proxyAPI.getAllSymbols();
+      console.log(`NSEIndia: Retrieved ${symbols.length} symbols from proxy NSE`);
+      return symbols;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('NSEIndia: Failed to get symbols:', errorMessage);
+
+      if (errorMessage.includes('429')) {
+        this.setRateLimit();
+      }
+
+      return this.getFallbackSymbols();
+    }
+  }
+
+  /**
+   * Check if NSE market is currently open
+   */
+  async getMarketStatus(): Promise<{ isOpen: boolean; status: string; nextOpen?: string }> {
+    console.log('NSEIndia: Checking market status via proxy...');
+
+    try {
+      return await this.proxyAPI.getMarketStatus();
+    } catch (error) {
+      console.error('NSEIndia: Failed to get market status:', error);
+      
+      // Fallback: Simple time-based check for IST market hours
+      const now = new Date();
+      const istTime = new Date(now.getTime() + (5.5 * 60 * 60 * 1000)); // Convert to IST
+      const hours = istTime.getUTCHours();
+      const minutes = istTime.getUTCMinutes();
+      const currentMinutes = hours * 60 + minutes;
+      
+      // Market hours: 9:15 AM to 3:30 PM IST (555 to 930 minutes)
+      const marketStart = 9 * 60 + 15; // 9:15 AM
+      const marketEnd = 15 * 60 + 30;  // 3:30 PM
+      
+      const isOpen = currentMinutes >= marketStart && currentMinutes <= marketEnd;
+      
+      return {
+        isOpen,
+        status: isOpen ? 'Open' : 'Closed',
+        nextOpen: !isOpen ? 'Tomorrow 9:15 AM IST' : undefined
+      };
+    }
+  }
+
+  /**
+   * Fallback data when APIs are unavailable
+   */
+  private getFallbackData(limit: number): Stock[] {
+    console.log(`NSEIndia: Generating ${limit} fallback stocks`);
     
-    do {
-      while (this.noOfConnections >= 5) {
-        await sleep(500);
-      }
-      
-      this.noOfConnections++;
-      
-      try {
-        // Use development proxy if available
-        let fetchUrl = url;
-        let headers: Record<string, string> = { ...this.baseHeaders, 'User-Agent': this.userAgent };
-        
-        if (isDevelopment && url.startsWith(this.baseUrl)) {
-          // Replace NSE base URL with development proxy
-          fetchUrl = url.replace(this.baseUrl, DEV_NSE_PROXY);
-          console.log(`Using development proxy: ${fetchUrl}`);
-        } else {
-          fetchUrl = url.replace(this.baseUrl, PROD_NSE_PROXY);
-        }
+    const fallbackStocks = [
+      { symbol: 'RELIANCE', name: 'Reliance Industries Ltd.', basePrice: 2456.75 },
+      { symbol: 'TCS', name: 'Tata Consultancy Services Ltd.', basePrice: 3234.80 },
+      { symbol: 'HDFCBANK', name: 'HDFC Bank Ltd.', basePrice: 1567.90 },
+      { symbol: 'INFY', name: 'Infosys Ltd.', basePrice: 1432.65 },
+      { symbol: 'HINDUNILVR', name: 'Hindustan Unilever Ltd.', basePrice: 2234.45 },
+      { symbol: 'ICICIBANK', name: 'ICICI Bank Ltd.', basePrice: 987.30 },
+      { symbol: 'SBIN', name: 'State Bank of India', basePrice: 543.20 },
+      { symbol: 'BHARTIARTL', name: 'Bharti Airtel Ltd.', basePrice: 876.45 },
+      { symbol: 'ITC', name: 'ITC Ltd.', basePrice: 234.80 },
+      { symbol: 'LT', name: 'Larsen & Toubro Ltd.', basePrice: 2156.90 },
+      { symbol: 'WIPRO', name: 'Wipro Ltd.', basePrice: 398.75 },
+      { symbol: 'AXISBANK', name: 'Axis Bank Ltd.', basePrice: 1087.60 },
+      { symbol: 'MARUTI', name: 'Maruti Suzuki India Ltd.', basePrice: 9875.20 },
+      { symbol: 'SUNPHARMA', name: 'Sun Pharmaceutical Industries Ltd.', basePrice: 1076.45 },
+      { symbol: 'ULTRACEMCO', name: 'UltraTech Cement Ltd.', basePrice: 7654.30 }
+    ];
 
-        const response = await fetch(fetchUrl, { headers });
+    return fallbackStocks.slice(0, limit).map((stock, index) => {
+      const changePercent = (Math.random() - 0.5) * 10; // -5% to +5%
+      const change = stock.basePrice * (changePercent / 100);
+      const price = stock.basePrice + change;
 
-        this.noOfConnections--;
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        return await response.json();
-      } catch (error) {
-        hasError = true;
-        retries++;
-        this.noOfConnections--;
-        
-        if (retries >= 3) {
-          throw error;
-        }
-        
-        await sleep(1000 * retries); // Exponential backoff
-      }
-    } while (hasError && retries < 3);
+      return {
+        id: (index + 1).toString(),
+        symbol: stock.symbol,
+        name: stock.name,
+        price: Number(price.toFixed(2)),
+        change: Number(change.toFixed(2)),
+        changePercent: Number(changePercent.toFixed(2)),
+        volume: Math.floor(Math.random() * 1000000) + 100000,
+        marketCap: `₹${(price * (Math.floor(Math.random() * 100000000) + 10000000) / 1e7).toFixed(2)}Cr`,
+        exchange: 'NSE' as const,
+        currency: 'INR'
+      };
+    });
   }
 
-  async getDataByEndpoint(apiEndpoint: string): Promise<unknown> {
-    return this.getData(`${this.baseUrl}${apiEndpoint}`);
+  /**
+   * Fallback stock details
+   */
+  private getFallbackStockDetails(symbol: string): Stock | null {
+    const fallbackData = this.getFallbackData(50);
+    return fallbackData.find(stock => stock.symbol === symbol.toUpperCase()) || null;
   }
 
-  async getEquityDetails(symbol: string): Promise<NSEEquityData> {
-    const result = await this.getDataByEndpoint(`${NSE_QUOTE_URL}?symbol=${encodeURIComponent(symbol.toUpperCase())}`);
-    return result as NSEEquityData;
+  /**
+   * Fallback stock symbols
+   */
+  private getFallbackSymbols(): string[] {
+    return [
+      'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'HINDUNILVR', 'ICICIBANK', 'SBIN', 
+      'BHARTIARTL', 'ITC', 'LT', 'WIPRO', 'AXISBANK', 'MARUTI', 'SUNPHARMA', 
+      'ULTRACEMCO', 'NTPC', 'KOTAKBANK', 'ASIANPAINT', 'ADANIPORTS', 'POWERGRID',
+      'BAJFINANCE', 'HCLTECH', 'TITAN', 'NESTLEIND', 'BAJAJFINSV', 'TECHM',
+      'TATACONSUM', 'TATAMOTORS', 'JSWSTEEL', 'HINDALCO', 'GRASIM', 'SHREECEM',
+      'COALINDIA', 'HEROMOTOCO', 'DRREDDY', 'DIVISLAB', 'CIPLA', 'BRITANNIA',
+      'APOLLOHOSP', 'EICHERMOT', 'BPCL', 'IOC', 'ONGC', 'TATASTEEL', 'VEDL',
+      'INDUSINDBK', 'HDFCLIFE', 'SBILIFE', 'BAJAJ-AUTO', 'M&M'
+    ];
   }
 }
 
-// Create NSE API instance
-const nseIndia = new NSEIndia();
-
-// Popular Indian stock symbols for suggestions
-export const POPULAR_INDIAN_STOCKS = [
-  { symbol: 'RELIANCE', name: 'Reliance Industries Limited', exchange: 'NSE' },
-  { symbol: 'TCS', name: 'Tata Consultancy Services Limited', exchange: 'NSE' },
-  { symbol: 'INFY', name: 'Infosys Limited', exchange: 'NSE' },
-  { symbol: 'HDFCBANK', name: 'HDFC Bank Limited', exchange: 'NSE' },
-  { symbol: 'ICICIBANK', name: 'ICICI Bank Limited', exchange: 'NSE' },
-  { symbol: 'HINDUNILVR', name: 'Hindustan Unilever Limited', exchange: 'NSE' },
-  { symbol: 'ITC', name: 'ITC Limited', exchange: 'NSE' },
-  { symbol: 'SBIN', name: 'State Bank of India', exchange: 'NSE' },
-  { symbol: 'BHARTIARTL', name: 'Bharti Airtel Limited', exchange: 'NSE' },
-  { symbol: 'ASIANPAINT', name: 'Asian Paints Limited', exchange: 'NSE' },
-];
-
-// Format symbol for Yahoo Finance API (add .NS for NSE, .BO for BSE)
-export const formatSymbolForAPI = (symbol: string, exchange: 'NSE' | 'BSE'): string => {
-  const cleanSymbol = symbol.toUpperCase().trim();
-  return exchange === 'NSE' ? `${cleanSymbol}.NS` : `${cleanSymbol}.BO`;
-};
-
-// Fetch stock data from NSE API with Yahoo Finance fallback
-export const fetchIndianStockData = async (symbol: string, exchange: 'NSE' | 'BSE'): Promise<StockAPIResponse> => {
-  const cleanSymbol = symbol.toUpperCase().trim();
-  
-  // Add better console logging for debugging
-  console.group(`🔍 Fetching data for ${cleanSymbol} (${exchange})`);
-  
-  try {
-    // Try NSE API first (works for NSE stocks)
-    if (exchange === 'NSE') {
-      console.log(`📡 Trying NSE API for ${cleanSymbol}`);
-      try {
-        const nseData = await nseIndia.getEquityDetails(cleanSymbol);
-        
-        console.log(`✅ Successfully fetched data for ${cleanSymbol} from NSE API`);
-        console.groupEnd();
-        return {
-          symbol: `${cleanSymbol}.NS`,
-          longName: nseData.info.companyName || cleanSymbol,
-          regularMarketPrice: nseData.priceInfo.lastPrice || 0,
-          regularMarketChange: nseData.priceInfo.change || 0,
-          regularMarketChangePercent: nseData.priceInfo.pChange || 0,
-          regularMarketVolume: 0, // NSE API doesn't provide volume in quote endpoint
-          marketCap: 0, // NSE API doesn't provide market cap in quote endpoint
-          currency: 'INR',
-          regularMarketPreviousClose: nseData.priceInfo.previousClose || 0,
-          regularMarketDayHigh: nseData.priceInfo.upperCP || 0,
-          regularMarketDayLow: nseData.priceInfo.lowerCP || 0,
-          fiftyTwoWeekHigh: 0, // Would need separate API call
-          fiftyTwoWeekLow: 0, // Would need separate API call
-        };
-      } catch (nseError) {
-        console.log(`❌ NSE API failed for ${cleanSymbol}:`, nseError);
-        // Fall through to Yahoo Finance
-      }
-    }
-    
-    
-    // If all APIs fail, use mock data as fallback
-    console.log(`🎭 All APIs failed for ${cleanSymbol}, using mock data`);
-    const mockData = MOCK_STOCK_DATA[formatSymbolForAPI(cleanSymbol, exchange)];
-    if (mockData) {
-      console.log(`✅ Using mock data for ${cleanSymbol}`);
-      console.groupEnd();
-      return mockData;
-    }
-    
-    console.groupEnd();
-    throw new Error('All API services failed and no mock data available');
-  } catch (error) {
-    console.groupEnd();
-    console.error('❌ Error fetching stock data:', error);
-    throw new Error(`Failed to fetch data for ${symbol}. Please check the symbol and try again.`);
-  }
-};
-
-// Fetch multiple stocks data
-export const fetchMultipleStocksData = async (symbols: { symbol: string, exchange: 'NSE' | 'BSE' }[]): Promise<StockAPIResponse[]> => {
-  const formattedSymbols = symbols.map(s => formatSymbolForAPI(s.symbol, s.exchange)).join(',');
-  
-  try {
-    const response = await fetch(
-      `${PROD_NSE_PROXY}/v7/finance/quote?symbols=${formattedSymbols}&fields=longName,regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketVolume,marketCap,currency,regularMarketPreviousClose,regularMarketDayHigh,regularMarketDayLow,fiftyTwoWeekHigh,fiftyTwoWeekLow`,
-      {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-        }
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    if (!data.quoteResponse?.result) {
-      throw new Error('No stock data found');
-    }
-
-    return data.quoteResponse.result.map((stockData: any) => ({
-      symbol: stockData.symbol,
-      longName: stockData.longName || stockData.shortName || stockData.symbol,
-      regularMarketPrice: stockData.regularMarketPrice || 0,
-      regularMarketChange: stockData.regularMarketChange || 0,
-      regularMarketChangePercent: stockData.regularMarketChangePercent || 0,
-      regularMarketVolume: stockData.regularMarketVolume,
-      marketCap: stockData.marketCap,
-      currency: stockData.currency || 'INR',
-      regularMarketPreviousClose: stockData.regularMarketPreviousClose || 0,
-      regularMarketDayHigh: stockData.regularMarketDayHigh || 0,
-      regularMarketDayLow: stockData.regularMarketDayLow || 0,
-      fiftyTwoWeekHigh: stockData.fiftyTwoWeekHigh || 0,
-      fiftyTwoWeekLow: stockData.fiftyTwoWeekLow || 0,
-    }));
-  } catch (error) {
-    console.error('Error fetching multiple stocks data:', error);
-    throw new Error('Failed to fetch stocks data. Please try again.');
-  }
-};
-
-// Validate Indian stock symbol
-export const validateIndianStockSymbol = (symbol: string): boolean => {
-  // Basic validation for Indian stock symbols
-  const cleanSymbol = symbol.trim().toUpperCase();
-  
-  // Should be 1-20 characters, alphanumeric
-  if (!/^[A-Z0-9]{1,20}$/.test(cleanSymbol)) {
-    return false;
-  }
-  
-  return true;
-};
-
-// Get suggestions based on partial symbol
-export const getStockSuggestions = (partial: string): Array<{symbol: string, name: string, exchange: string}> => {
-  const search = partial.toUpperCase().trim();
-  
-  if (search.length < 1) return [];
-  
-  return POPULAR_INDIAN_STOCKS.filter(stock => 
-    stock.symbol.includes(search) || 
-    stock.name.toUpperCase().includes(search)
-  ).slice(0, 5);
-};
-
-// Format market cap for display
-export const formatMarketCap = (marketCap: number): string => {
-  if (!marketCap) return 'N/A';
-  
-  if (marketCap >= 1e12) {
-    return `₹${(marketCap / 1e12).toFixed(2)}T`;
-  } else if (marketCap >= 1e9) {
-    return `₹${(marketCap / 1e9).toFixed(2)}B`;
-  } else if (marketCap >= 1e7) {
-    return `₹${(marketCap / 1e7).toFixed(2)}Cr`;
-  } else if (marketCap >= 1e5) {
-    return `₹${(marketCap / 1e5).toFixed(2)}L`;
-  } else {
-    return `₹${marketCap.toLocaleString('en-IN')}`;
-  }
-};
-
-// Format volume for display
+/**
+ * Helper function to format volume numbers
+ */
 export const formatVolume = (volume: number): string => {
-  if (!volume) return 'N/A';
-  
-  if (volume >= 1e7) {
-    return `${(volume / 1e7).toFixed(2)}Cr`;
-  } else if (volume >= 1e5) {
-    return `${(volume / 1e5).toFixed(2)}L`;
-  } else if (volume >= 1e3) {
-    return `${(volume / 1e3).toFixed(2)}K`;
-  } else {
-    return volume.toLocaleString('en-IN');
+  if (volume >= 1_00_00_000) {
+    return `${(volume / 1_00_00_000).toFixed(2)}Cr`;
+  } else if (volume >= 1_00_000) {
+    return `${(volume / 1_00_000).toFixed(2)}L`;
+  } else if (volume >= 1_000) {
+    return `${(volume / 1_000).toFixed(2)}K`;
   }
+  return volume.toString();
 };
+
+export default NSEIndia;

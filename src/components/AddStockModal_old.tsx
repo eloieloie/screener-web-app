@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import type { AddStockForm } from '../types/Stock'
-import { getAvailableSymbols } from '../services/stockService'
+import { validateIndianStockSymbol, getStockSuggestions } from '../services/indianStockAPI'
 import './AddStockModal.css'
 
 interface AddStockModalProps {
@@ -16,48 +16,7 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
   })
   const [errors, setErrors] = useState<Partial<Record<keyof AddStockForm, string>>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [suggestions, setSuggestions] = useState<string[]>([])
-  const [availableSymbols, setAvailableSymbols] = useState<string[]>([])
-  const [isLoadingSymbols, setIsLoadingSymbols] = useState(false)
-
-  // Load available symbols on mount
-  useEffect(() => {
-    const loadSymbols = async () => {
-      setIsLoadingSymbols(true)
-      try {
-        const symbols = await getAvailableSymbols()
-        setAvailableSymbols(symbols.slice(0, 100)) // Limit to first 100 for performance
-      } catch (error) {
-        console.error('Failed to load symbols:', error)
-      } finally {
-        setIsLoadingSymbols(false)
-      }
-    }
-    
-    loadSymbols()
-  }, [])
-
-  const validateIndianStockSymbol = (symbol: string): boolean => {
-    // Basic validation for Indian stock symbols
-    const cleanSymbol = symbol.trim().toUpperCase()
-    
-    // Should be 1-20 characters, alphanumeric
-    if (!/^[A-Z0-9]{1,20}$/.test(cleanSymbol)) {
-      return false
-    }
-    
-    return true
-  }
-
-  const getFilteredSuggestions = (partial: string): string[] => {
-    const search = partial.toUpperCase().trim()
-    
-    if (search.length < 1) return []
-    
-    return availableSymbols
-      .filter(symbol => symbol.includes(search))
-      .slice(0, 10) // Limit to 10 suggestions
-  }
+  const [suggestions, setSuggestions] = useState<Array<{symbol: string, name: string, exchange: string}>>([])
 
   const validateForm = (): boolean => {
     const newErrors: Partial<Record<keyof AddStockForm, string>> = {}
@@ -98,16 +57,17 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
     
     // Show suggestions when typing symbol
     if (field === 'symbol' && typeof value === 'string') {
-      const newSuggestions = getFilteredSuggestions(value)
+      const newSuggestions = getStockSuggestions(value)
       setSuggestions(newSuggestions)
     }
   }
 
-  const selectSuggestion = (symbol: string) => {
+  const selectSuggestion = (suggestion: {symbol: string, name: string, exchange: string}) => {
     setFormData(prev => ({
       ...prev,
-      symbol: symbol,
-      name: prev.name || symbol // Keep existing name or use symbol as fallback
+      symbol: suggestion.symbol,
+      name: suggestion.name,
+      exchange: suggestion.exchange as 'NSE' | 'BSE'
     }))
     setSuggestions([])
   }
@@ -135,13 +95,6 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
             />
             {errors.symbol && <span className="error-message">{errors.symbol}</span>}
             
-            {/* Loading indicator */}
-            {isLoadingSymbols && (
-              <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-                Loading available symbols...
-              </div>
-            )}
-            
             {/* Suggestions dropdown */}
             {suggestions.length > 0 && (
               <div className="suggestions-dropdown" style={{
@@ -157,11 +110,11 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
                 maxHeight: '200px',
                 overflowY: 'auto'
               }}>
-                {suggestions.map((symbol, index) => (
+                {suggestions.map((suggestion, index) => (
                   <div
-                    key={`${symbol}-${index}`}
+                    key={`${suggestion.symbol}-${index}`}
                     className="suggestion-item"
-                    onClick={() => selectSuggestion(symbol)}
+                    onClick={() => selectSuggestion(suggestion)}
                     style={{
                       padding: '8px 12px',
                       cursor: 'pointer',
@@ -171,9 +124,9 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
                   >
-                    <div style={{ fontWeight: 'bold' }}>{symbol}</div>
+                    <div style={{ fontWeight: 'bold' }}>{suggestion.symbol}</div>
                     <div style={{ color: '#666', fontSize: '12px' }}>
-                      NSE Symbol
+                      {suggestion.name} ({suggestion.exchange})
                     </div>
                   </div>
                 ))}
@@ -193,9 +146,6 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
               disabled={isSubmitting}
             />
             {errors.name && <span className="error-message">{errors.name}</span>}
-            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-              This will be updated automatically when the stock is added
-            </div>
           </div>
 
           <div className="form-group">
@@ -215,14 +165,9 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
               }}
             >
               <option value="NSE">NSE (National Stock Exchange)</option>
-              <option value="BSE">BSE (Bombay Stock Exchange) - Limited Support</option>
+              <option value="BSE">BSE (Bombay Stock Exchange)</option>
             </select>
             {errors.exchange && <span className="error-message">{errors.exchange}</span>}
-            {formData.exchange === 'BSE' && (
-              <div style={{ fontSize: '12px', color: '#f39c12', marginTop: '4px' }}>
-                ⚠️ BSE support is limited. Use NSE for better data availability.
-              </div>
-            )}
           </div>
 
           <div className="form-actions">

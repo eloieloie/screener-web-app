@@ -12,29 +12,39 @@ import {
   Timestamp 
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import type { Stock, AddStockForm } from '../types/Stock';
-import NSEIndia from './indianStockAPI';
+import type { Stock, AddStockForm, StockAPIResponse } from '../types/Stock';
+import { fetchIndianStockData, formatMarketCap } from './indianStockAPI';
 
 const STOCKS_COLLECTION = 'stocks';
 
-// Create NSE API instance
-const nseAPI = new NSEIndia();
+// Convert API response to Stock object
+const convertAPIResponseToStock = (apiData: StockAPIResponse, docId: string): Stock => ({
+  id: docId,
+  symbol: apiData.symbol,
+  name: apiData.longName,
+  price: apiData.regularMarketPrice,
+  change: apiData.regularMarketChange,
+  changePercent: apiData.regularMarketChangePercent,
+  volume: apiData.regularMarketVolume,
+  marketCap: formatMarketCap(apiData.marketCap || 0),
+  exchange: apiData.symbol.endsWith('.NS') ? 'NSE' : 'BSE',
+  currency: apiData.currency,
+  previousClose: apiData.regularMarketPreviousClose,
+  dayHigh: apiData.regularMarketDayHigh,
+  dayLow: apiData.regularMarketDayLow,
+  fiftyTwoWeekHigh: apiData.fiftyTwoWeekHigh,
+  fiftyTwoWeekLow: apiData.fiftyTwoWeekLow,
+});
 
 // Add a new stock to Firestore with real API data
 export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
   try {
-    console.log(`Adding stock: ${stockData.symbol} on ${stockData.exchange}`);
-    
-    // Get stock details from NSE API
-    const stockDetails = await nseAPI.getStockDetails(stockData.symbol);
-    
-    if (!stockDetails) {
-      throw new Error(`Stock ${stockData.symbol} not found`);
-    }
+    // Fetch real stock data from API
+    const apiData = await fetchIndianStockData(stockData.symbol, stockData.exchange);
     
     const stockDocument = {
-      symbol: stockDetails.symbol,
-      name: stockDetails.name,
+      symbol: apiData.symbol,
+      name: apiData.longName,
       exchange: stockData.exchange,
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now()
@@ -42,10 +52,7 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
 
     const docRef = await addDoc(collection(db, STOCKS_COLLECTION), stockDocument);
 
-    return {
-      ...stockDetails,
-      id: docRef.id
-    };
+    return convertAPIResponseToStock(apiData, docRef.id);
   } catch (error) {
     console.error('Error adding stock:', error);
     throw new Error('Failed to add stock. Please check the symbol and try again.');
@@ -63,28 +70,8 @@ export const getStocks = async (): Promise<Stock[]> => {
     querySnapshot.forEach((doc) => {
       const data = doc.data();
       // Fetch fresh data from API for each stock
-      const stockPromise = nseAPI.getStockDetails(data.symbol)
-        .then(stockDetails => {
-          if (stockDetails) {
-            return {
-              ...stockDetails,
-              id: doc.id
-            };
-          } else {
-            // Return basic data if API fails
-            return {
-              id: doc.id,
-              symbol: data.symbol,
-              name: data.name,
-              price: 0,
-              change: 0,
-              changePercent: 0,
-              exchange: data.exchange as 'NSE' | 'BSE',
-              currency: 'INR',
-              marketCap: 'N/A'
-            } as Stock;
-          }
-        })
+      const stockPromise = fetchIndianStockData(data.symbol.replace('.NS', '').replace('.BO', ''), data.exchange)
+        .then(apiData => convertAPIResponseToStock(apiData, doc.id))
         .catch(error => {
           console.error(`Error fetching data for ${data.symbol}:`, error);
           // Return basic data if API fails
@@ -95,7 +82,7 @@ export const getStocks = async (): Promise<Stock[]> => {
             price: 0,
             change: 0,
             changePercent: 0,
-            exchange: data.exchange as 'NSE' | 'BSE',
+            exchange: data.exchange,
             currency: 'INR',
             marketCap: 'N/A'
           } as Stock;
@@ -119,28 +106,8 @@ export const subscribeToStocks = (callback: (stocks: Stock[]) => void): (() => v
     querySnapshot.forEach((doc) => {
       const data = doc.data();
       // Fetch fresh data from API for each stock
-      const stockPromise = nseAPI.getStockDetails(data.symbol)
-        .then(stockDetails => {
-          if (stockDetails) {
-            return {
-              ...stockDetails,
-              id: doc.id
-            };
-          } else {
-            // Return basic data if API fails
-            return {
-              id: doc.id,
-              symbol: data.symbol,
-              name: data.name,
-              price: 0,
-              change: 0,
-              changePercent: 0,
-              exchange: data.exchange as 'NSE' | 'BSE',
-              currency: 'INR',
-              marketCap: 'N/A'
-            } as Stock;
-          }
-        })
+      const stockPromise = fetchIndianStockData(data.symbol.replace('.NS', '').replace('.BO', ''), data.exchange)
+        .then(apiData => convertAPIResponseToStock(apiData, doc.id))
         .catch(error => {
           console.error(`Error fetching data for ${data.symbol}:`, error);
           // Return basic data if API fails
@@ -151,7 +118,7 @@ export const subscribeToStocks = (callback: (stocks: Stock[]) => void): (() => v
             price: 0,
             change: 0,
             changePercent: 0,
-            exchange: data.exchange as 'NSE' | 'BSE',
+            exchange: data.exchange,
             currency: 'INR',
             marketCap: 'N/A'
           } as Stock;
@@ -205,53 +172,14 @@ export const refreshStockData = async (stockId: string): Promise<Stock> => {
     }
     
     const data = stockDoc.data();
-    const stockDetails = await nseAPI.getStockDetails(data.symbol);
+    const apiData = await fetchIndianStockData(
+      data.symbol.replace('.NS', '').replace('.BO', ''), 
+      data.exchange
+    );
     
-    if (!stockDetails) {
-      throw new Error('Failed to fetch stock details');
-    }
-    
-    return {
-      ...stockDetails,
-      id: stockId
-    };
+    return convertAPIResponseToStock(apiData, stockId);
   } catch (error) {
     console.error('Error refreshing stock data:', error);
     throw new Error('Failed to refresh stock data');
-  }
-};
-
-// Get available stock symbols
-export const getAvailableSymbols = async (): Promise<string[]> => {
-  try {
-    return await nseAPI.getAllSymbols();
-  } catch (error) {
-    console.error('Error getting available symbols:', error);
-    return [];
-  }
-};
-
-// Get market status
-export const getMarketStatus = async (): Promise<{ isOpen: boolean; status: string; nextOpen?: string }> => {
-  try {
-    return await nseAPI.getMarketStatus();
-  } catch (error) {
-    console.error('Error getting market status:', error);
-    // Return default closed status
-    return {
-      isOpen: false,
-      status: 'Unknown',
-      nextOpen: 'Check back later'
-    };
-  }
-};
-
-// Get popular stocks for the screener
-export const getPopularStocks = async (limit: number = 20): Promise<Stock[]> => {
-  try {
-    return await nseAPI.getStocks(limit);
-  } catch (error) {
-    console.error('Error getting popular stocks:', error);
-    return [];
   }
 };

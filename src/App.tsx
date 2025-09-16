@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import type { Stock, AddStockForm } from './types/Stock'
 import StockList from './components/StockList'
 import AddStockModal from './components/AddStockModal'
-import { subscribeToStocks, addStock as addStockToFirebase, deleteStock, refreshStockData } from './services/stockService'
+import { subscribeToStocks, addStock as addStockToFirebase, deleteStock, updateStock } from './services/stockService'
 import './App.css'
 
 function App() {
@@ -44,28 +44,17 @@ function App() {
     }
   }
 
-  const updateStockPrice = async (id: string, _newPrice: number) => {
+  const updateStockPrice = async (id: string, newPrice: number) => {
     try {
-      setError(null)
-      // Since we're using real API data, we'll refresh the stock data
-      // In a real app, you might want to implement manual price override
-      const refreshedStock = await refreshStockData(id)
-      setStocks(prev => prev.map(stock => 
-        stock.id === id ? refreshedStock : stock
-      ))
-    } catch (err) {
-      setError('Failed to refresh stock data. Please try again.')
-      console.error('Error refreshing stock data:', err)
+      await updateStock(id, { price: newPrice })
+      console.log(`Updated stock ${id} with new price: ${newPrice}`)
+    } catch (error) {
+      console.error('Failed to update stock price:', error)
     }
   }
 
   return (
     <div className="app">
-      <header className="app-header">
-        <h1>📈 Indian Stock Screener</h1>
-        <p>Track and monitor Indian stocks from NSE & BSE</p>
-      </header>
-
       <main className="app-main">
         <div className="actions-bar">
           <button 
