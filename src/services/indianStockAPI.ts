@@ -3,24 +3,11 @@ import type { StockAPIResponse } from '../types/Stock';
 // NSE India Official API
 const NSE_BASE_URL = 'https://www.nseindia.com';
 const NSE_QUOTE_URL = '/api/quote-equity';
+const PROD_NSE_PROXY = 'https://us-central1-screener-d132c.cloudfunctions.net/nseProxy';
 
 // Development proxy URLs (when using Vite dev server)
 const isDevelopment = import.meta.env.DEV;
-const DEV_YAHOO_PROXY = '/api/yahoo';
 const DEV_NSE_PROXY = '/api/nse';
-
-// Fallback: Yahoo Finance with CORS proxies
-const CORS_PROXIES = [
-  // AllOrigins with proper origin support
-  'https://api.allorigins.win/get?url=',
-  // Heroku Proxy (demo mode)
-  'https://thingproxy.freeboard.io/fetch/',
-  // JSONProxy
-  'https://jsonp.afeld.me/?url=',
-  // Proxy with better CORS support
-  'https://cors-proxy.htmldriven.com/?url='
-];
-const YAHOO_QUOTE_URL = 'https://query1.finance.yahoo.com/v7/finance/quote';
 
 // Fallback mock data for demonstration when APIs fail
 const MOCK_STOCK_DATA: Record<string, StockAPIResponse> = {
@@ -101,22 +88,6 @@ const MOCK_STOCK_DATA: Record<string, StockAPIResponse> = {
   }
 };
 
-interface YahooFinanceStock {
-  symbol: string;
-  longName?: string;
-  shortName?: string;
-  regularMarketPrice?: number;
-  regularMarketChange?: number;
-  regularMarketChangePercent?: number;
-  regularMarketVolume?: number;
-  marketCap?: number;
-  currency?: string;
-  regularMarketPreviousClose?: number;
-  regularMarketDayHigh?: number;
-  regularMarketDayLow?: number;
-  fiftyTwoWeekHigh?: number;
-  fiftyTwoWeekLow?: number;
-}
 
 // NSE API Response Interfaces
 interface NSEEquityData {
@@ -151,7 +122,6 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // NSE India API Service Class
 class NSEIndia {
   private readonly baseUrl = NSE_BASE_URL;
-  private readonly cookieMaxAge = 60; // seconds
   private readonly baseHeaders = {
     'Authority': 'www.nseindia.com',
     'Referer': 'https://www.nseindia.com/',
@@ -162,44 +132,7 @@ class NSEIndia {
     'Connection': 'keep-alive'
   };
   private userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
-  private cookies = '';
-  private cookieUsedCount = 0;
-  private cookieExpiry = new Date().getTime() + (this.cookieMaxAge * 1000);
   private noOfConnections = 0;
-
-  private async getNseCookies(): Promise<string> {
-    const currentTime = new Date().getTime();
-    
-    if (this.cookies && currentTime < this.cookieExpiry && this.cookieUsedCount < 10) {
-      this.cookieUsedCount++;
-      return this.cookies;
-    }
-
-    try {
-      const response = await fetch(this.baseUrl, {
-        headers: {
-          'User-Agent': this.userAgent,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-          'Accept-Encoding': 'gzip, deflate',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1'
-        }
-      });
-
-      const setCookieHeader = response.headers.get('set-cookie');
-      if (setCookieHeader) {
-        this.cookies = setCookieHeader;
-        this.cookieUsedCount = 0;
-        this.cookieExpiry = new Date().getTime() + (this.cookieMaxAge * 1000);
-      }
-      
-      return this.cookies;
-    } catch (error) {
-      console.warn('Failed to get NSE cookies:', error);
-      return '';
-    }
-  }
 
   async getData(url: string): Promise<unknown> {
     let retries = 0;
@@ -222,9 +155,7 @@ class NSEIndia {
           fetchUrl = url.replace(this.baseUrl, DEV_NSE_PROXY);
           console.log(`Using development proxy: ${fetchUrl}`);
         } else {
-          // Production: get cookies for NSE API
-          const cookies = await this.getNseCookies();
-          headers = { ...headers, 'Cookie': cookies };
+          fetchUrl = url.replace(this.baseUrl, PROD_NSE_PROXY);
         }
 
         const response = await fetch(fetchUrl, { headers });
@@ -320,119 +251,6 @@ export const fetchIndianStockData = async (symbol: string, exchange: 'NSE' | 'BS
       }
     }
     
-    // Fallback to Yahoo Finance with CORS proxy
-    const formattedSymbol = formatSymbolForAPI(cleanSymbol, exchange);
-    console.log(`🔄 Falling back to Yahoo Finance for ${formattedSymbol}`);
-    
-    // Try development proxy first if available
-    if (isDevelopment) {
-      try {
-        const apiUrl = `${DEV_YAHOO_PROXY}/v7/finance/quote?symbols=${formattedSymbol}&fields=longName,regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketVolume,marketCap,currency,regularMarketPreviousClose,regularMarketDayHigh,regularMarketDayLow,fiftyTwoWeekHigh,fiftyTwoWeekLow`;
-        
-        console.log(`🚀 Trying Yahoo Finance with development proxy: ${DEV_YAHOO_PROXY}`);
-        const response = await fetch(apiUrl, {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-          }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          
-          if (data.quoteResponse?.result?.[0]) {
-            const stockData = data.quoteResponse.result[0];
-            
-            console.log(`✅ Successfully fetched data for ${formattedSymbol} using development proxy`);
-            console.groupEnd();
-            return {
-              symbol: formattedSymbol,
-              longName: stockData.longName || stockData.shortName || cleanSymbol,
-              regularMarketPrice: stockData.regularMarketPrice || 0,
-              regularMarketChange: stockData.regularMarketChange || 0,
-              regularMarketChangePercent: stockData.regularMarketChangePercent || 0,
-              regularMarketVolume: stockData.regularMarketVolume,
-              marketCap: stockData.marketCap,
-              currency: stockData.currency || 'INR',
-              regularMarketPreviousClose: stockData.regularMarketPreviousClose || 0,
-              regularMarketDayHigh: stockData.regularMarketDayHigh || 0,
-              regularMarketDayLow: stockData.regularMarketDayLow || 0,
-              fiftyTwoWeekHigh: stockData.fiftyTwoWeekHigh || 0,
-              fiftyTwoWeekLow: stockData.fiftyTwoWeekLow || 0,
-            };
-          }
-        }
-      } catch (devProxyError) {
-        console.log(`❌ Development proxy failed:`, devProxyError);
-      }
-    }
-    
-    // Try multiple CORS proxy solutions in order of preference
-    for (const proxy of CORS_PROXIES) {
-      try {
-        const apiUrl = `${YAHOO_QUOTE_URL}?symbols=${formattedSymbol}&fields=longName,regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketVolume,marketCap,currency,regularMarketPreviousClose,regularMarketDayHigh,regularMarketDayLow,fiftyTwoWeekHigh,fiftyTwoWeekLow`;
-        
-        let proxiedUrl: string;
-        const requestOptions: RequestInit = {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest'
-          }
-        };
-
-        if (proxy.includes('allorigins.win/get')) {
-          // AllOrigins format: returns JSON with {contents: data}
-          proxiedUrl = `${proxy}${encodeURIComponent(apiUrl)}`;
-        } else {
-          // Standard proxy format
-          proxiedUrl = `${proxy}${encodeURIComponent(apiUrl)}`;
-        }
-        
-        console.log(`🌐 Trying Yahoo Finance with proxy: ${proxy}`);
-        const response = await fetch(proxiedUrl, requestOptions);
-
-        if (!response.ok) {
-          console.log(`❌ Proxy ${proxy} failed with status: ${response.status}`);
-          continue; // Try next proxy
-        }
-
-        let data = await response.json();
-        
-        // Handle AllOrigins response format
-        if (proxy.includes('allorigins.win/get') && data.contents) {
-          data = JSON.parse(data.contents);
-        }
-        
-        if (!data.quoteResponse?.result?.[0]) {
-          console.log(`❌ No data found for ${formattedSymbol} using proxy ${proxy}`);
-          continue; // Try next proxy
-        }
-
-        const stockData = data.quoteResponse.result[0];
-        
-        console.log(`✅ Successfully fetched data for ${formattedSymbol} using Yahoo Finance proxy: ${proxy}`);
-        console.groupEnd();
-        return {
-          symbol: formattedSymbol,
-          longName: stockData.longName || stockData.shortName || cleanSymbol,
-          regularMarketPrice: stockData.regularMarketPrice || 0,
-          regularMarketChange: stockData.regularMarketChange || 0,
-          regularMarketChangePercent: stockData.regularMarketChangePercent || 0,
-          regularMarketVolume: stockData.regularMarketVolume,
-          marketCap: stockData.marketCap,
-          currency: stockData.currency || 'INR',
-          regularMarketPreviousClose: stockData.regularMarketPreviousClose || 0,
-          regularMarketDayHigh: stockData.regularMarketDayHigh || 0,
-          regularMarketDayLow: stockData.regularMarketDayLow || 0,
-          fiftyTwoWeekHigh: stockData.fiftyTwoWeekHigh || 0,
-          fiftyTwoWeekLow: stockData.fiftyTwoWeekLow || 0,
-        };
-      } catch (proxyError) {
-        console.log(`❌ Yahoo Finance proxy ${proxy} failed:`, proxyError);
-        continue; // Try next proxy
-      }
-    }
     
     // If all APIs fail, use mock data as fallback
     console.log(`🎭 All APIs failed for ${cleanSymbol}, using mock data`);
@@ -458,7 +276,7 @@ export const fetchMultipleStocksData = async (symbols: { symbol: string, exchang
   
   try {
     const response = await fetch(
-      `${YAHOO_QUOTE_URL}?symbols=${formattedSymbols}&fields=longName,regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketVolume,marketCap,currency,regularMarketPreviousClose,regularMarketDayHigh,regularMarketDayLow,fiftyTwoWeekHigh,fiftyTwoWeekLow`,
+      `${PROD_NSE_PROXY}/v7/finance/quote?symbols=${formattedSymbols}&fields=longName,regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketVolume,marketCap,currency,regularMarketPreviousClose,regularMarketDayHigh,regularMarketDayLow,fiftyTwoWeekHigh,fiftyTwoWeekLow`,
       {
         method: 'GET',
         headers: {
@@ -477,7 +295,7 @@ export const fetchMultipleStocksData = async (symbols: { symbol: string, exchang
       throw new Error('No stock data found');
     }
 
-    return data.quoteResponse.result.map((stockData: YahooFinanceStock) => ({
+    return data.quoteResponse.result.map((stockData: any) => ({
       symbol: stockData.symbol,
       longName: stockData.longName || stockData.shortName || stockData.symbol,
       regularMarketPrice: stockData.regularMarketPrice || 0,
