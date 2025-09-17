@@ -61,7 +61,8 @@ function App() {
             className="add-stock-btn"
             onClick={() => setIsModalOpen(true)}
           >
-            + Add Stock
+            <span>+</span>
+            Add Stock
           </button>
           <div className="stock-count">
             {stocks.length} stock{stocks.length !== 1 ? 's' : ''} tracked
@@ -69,32 +70,21 @@ function App() {
         </div>
 
         {error && (
-          <div className="error-message" style={{ 
-            background: '#fee', 
-            color: '#c33', 
-            padding: '1rem', 
-            borderRadius: '8px', 
-            margin: '1rem 0',
-            border: '1px solid #fcc'
-          }}>
+          <div className="error-message">
             {error}
           </div>
         )}
 
         {loading ? (
-          <div className="loading-state" style={{ 
-            textAlign: 'center', 
-            padding: '2rem',
-            color: '#666'
-          }}>
+          <div className="loading-state">
             <div>📊</div>
             <p>Loading your stocks...</p>
           </div>
         ) : stocks.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon">📊</div>
-            <h2>No stocks added yet</h2>
-            <p>Click "Add Stock" to start tracking your investments</p>
+          <div className="empty-state animate-fade-in">
+            <div className="empty-icon">�</div>
+            <h2>Start Your Investment Journey</h2>
+            <p>Add your first stock to begin tracking your portfolio performance and make informed investment decisions.</p>
           </div>
         ) : (
           <StockList 
