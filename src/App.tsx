@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import type { Stock, AddStockForm } from './types/Stock'
 import StockList from './components/StockList'
 import AddStockModal from './components/AddStockModal'
+import Analytics from './components/Analytics'
 import { subscribeToStocks, addStock as addStockToFirebase, deleteStock, updateStock } from './services/stockService'
 import './App.css'
 
@@ -10,6 +11,7 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState<'dashboard' | 'analytics'>('dashboard')
 
   // Subscribe to real-time stock updates
   useEffect(() => {
@@ -55,7 +57,28 @@ function App() {
 
   return (
     <div className="app">
-      <main className="app-main">
+      {/* Navigation Menu */}
+      <nav className="app-nav">
+        <div className="nav-menu">
+          <button 
+            className={`nav-btn ${currentPage === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setCurrentPage('dashboard')}
+          >
+            <span className="nav-icon">📊</span>
+            Dashboard
+          </button>
+          <button 
+            className={`nav-btn ${currentPage === 'analytics' ? 'active' : ''}`}
+            onClick={() => setCurrentPage('analytics')}
+          >
+            <span className="nav-icon">📈</span>
+            Analytics
+          </button>
+        </div>
+      </nav>
+
+      {currentPage === 'dashboard' ? (
+        <main className="app-main">
         <div className="actions-bar">
           <button 
             className="add-stock-btn"
@@ -93,7 +116,10 @@ function App() {
             onUpdatePrice={updateStockPrice}
           />
         )}
-      </main>
+        </main>
+      ) : (
+        <Analytics />
+      )}
 
       {isModalOpen && (
         <AddStockModal 

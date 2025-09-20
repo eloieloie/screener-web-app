@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { Stock } from '../types/Stock'
-import { formatVolume } from '../services/indianStockAPI'
+import { formatVolume } from '../utils/formatters'
+import MiniChartWidget from './MiniChartWidget'
+import SimpleChart from './SimpleChart'
 import './StockCard.css'
 
 interface StockCardProps {
@@ -12,6 +14,8 @@ interface StockCardProps {
 const StockCard = ({ stock, onRemove, onUpdatePrice }: StockCardProps) => {
   const [isEditing, setIsEditing] = useState(false)
   const [editPrice, setEditPrice] = useState(stock.price.toString())
+  const [showChart, setShowChart] = useState(false)
+  const [chartType, setChartType] = useState<'tradingview' | 'simple'>('simple')
 
   const handlePriceUpdate = () => {
     const newPrice = parseFloat(editPrice)
@@ -107,6 +111,54 @@ const StockCard = ({ stock, onRemove, onUpdatePrice }: StockCardProps) => {
               <label>52W Range:</label>
               <span>₹{stock.fiftyTwoWeekLow.toFixed(2)} - ₹{stock.fiftyTwoWeekHigh.toFixed(2)}</span>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Chart Controls */}
+      <div className="chart-controls">
+        <button 
+          className="chart-toggle"
+          onClick={() => setShowChart(!showChart)}
+        >
+          📊 {showChart ? 'Hide' : 'Show'} Chart
+        </button>
+        
+        {showChart && (
+          <div className="chart-type-selector">
+            <button 
+              className={chartType === 'simple' ? 'active' : ''}
+              onClick={() => setChartType('simple')}
+            >
+              Simple
+            </button>
+            <button 
+              className={chartType === 'tradingview' ? 'active' : ''}
+              onClick={() => setChartType('tradingview')}
+            >
+              TradingView
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Mini Chart */}
+      {showChart && (
+        <div className="stock-chart-container">
+          {chartType === 'simple' ? (
+            <SimpleChart 
+              symbol={stock.symbol} 
+              width={280} 
+              height={120}
+              className="stock-mini-chart"
+            />
+          ) : (
+            <MiniChartWidget 
+              symbol={stock.symbol}
+              width="100%"
+              height="120px"
+              className="stock-mini-chart"
+            />
           )}
         </div>
       )}

@@ -13,20 +13,20 @@ import {
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import type { Stock, AddStockForm } from '../types/Stock';
-import NSEIndia from './indianStockAPI';
+import KiteConnectAPI from './kiteConnectAPI';
 
 const STOCKS_COLLECTION = 'stocks';
 
-// Create NSE API instance
-const nseAPI = new NSEIndia();
+// Create KiteConnect API instance
+const kiteAPI = new KiteConnectAPI();
 
 // Add a new stock to Firestore with real API data
 export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
   try {
     console.log(`Adding stock: ${stockData.symbol} on ${stockData.exchange}`);
     
-    // Get stock details from NSE API
-    const stockDetails = await nseAPI.getStockDetails(stockData.symbol);
+    // Get stock details from KiteConnect API
+    const stockDetails = await kiteAPI.getStockQuote(stockData.symbol);
     
     if (!stockDetails) {
       throw new Error(`Stock ${stockData.symbol} not found`);
@@ -63,7 +63,7 @@ export const getStocks = async (): Promise<Stock[]> => {
     querySnapshot.forEach((doc) => {
       const data = doc.data();
       // Fetch fresh data from API for each stock
-      const stockPromise = nseAPI.getStockDetails(data.symbol)
+      const stockPromise = kiteAPI.getStockQuote(data.symbol)
         .then(stockDetails => {
           if (stockDetails) {
             return {
@@ -119,7 +119,7 @@ export const subscribeToStocks = (callback: (stocks: Stock[]) => void): (() => v
     querySnapshot.forEach((doc) => {
       const data = doc.data();
       // Fetch fresh data from API for each stock
-      const stockPromise = nseAPI.getStockDetails(data.symbol)
+      const stockPromise = kiteAPI.getStockQuote(data.symbol)
         .then(stockDetails => {
           if (stockDetails) {
             return {
@@ -205,7 +205,7 @@ export const refreshStockData = async (stockId: string): Promise<Stock> => {
     }
     
     const data = stockDoc.data();
-    const stockDetails = await nseAPI.getStockDetails(data.symbol);
+    const stockDetails = await kiteAPI.getStockQuote(data.symbol);
     
     if (!stockDetails) {
       throw new Error('Failed to fetch stock details');
@@ -224,7 +224,7 @@ export const refreshStockData = async (stockId: string): Promise<Stock> => {
 // Get available stock symbols
 export const getAvailableSymbols = async (): Promise<string[]> => {
   try {
-    return await nseAPI.getAllSymbols();
+    return await kiteAPI.getInstruments();
   } catch (error) {
     console.error('Error getting available symbols:', error);
     return [];
@@ -234,7 +234,7 @@ export const getAvailableSymbols = async (): Promise<string[]> => {
 // Get market status
 export const getMarketStatus = async (): Promise<{ isOpen: boolean; status: string; nextOpen?: string }> => {
   try {
-    return await nseAPI.getMarketStatus();
+    return await kiteAPI.getMarketStatus();
   } catch (error) {
     console.error('Error getting market status:', error);
     // Return default closed status
@@ -249,7 +249,7 @@ export const getMarketStatus = async (): Promise<{ isOpen: boolean; status: stri
 // Get popular stocks for the screener
 export const getPopularStocks = async (limit: number = 20): Promise<Stock[]> => {
   try {
-    return await nseAPI.getStocks(limit);
+    return await kiteAPI.getTopStocks(limit);
   } catch (error) {
     console.error('Error getting popular stocks:', error);
     return [];

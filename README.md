@@ -1,11 +1,12 @@
 # 📈 Indian Stock Screener
 
-A React-based web application to track and monitor Indian stocks from NSE (National Stock Exchange) and BSE (Bombay Stock Exchange). The application uses real-time data from Yahoo Finance API and stores user portfolios in Firebase Firestore.
+A React-based web application to track and monitor Indian stocks from NSE (National Stock Exchange) and BSE (Bombay Stock Exchange). The application integrates with Zerodha's KiteConnect API for real-time stock data and stores user portfolios in Firebase Firestore.
 
 ## 🚀 Features
 
-- **Real-time Indian Stock Data**: Fetches live data from Yahoo Finance API for NSE and BSE stocks
-- **Exchange Support**: Full support for both NSE and BSE exchanges
+- **Real-time Indian Stock Data**: Integrates with Zerodha KiteConnect API for live market data
+- **Demo Mode**: Works without authentication using simulated market data
+- **Exchange Support**: Full support for NSE stocks with automatic symbol handling
 - **Smart Suggestions**: Auto-complete with popular Indian stock symbols
 - **Live Price Updates**: Real-time price updates with change indicators
 - **Persistent Storage**: User portfolios saved to Firebase Firestore
@@ -13,15 +14,36 @@ A React-based web application to track and monitor Indian stocks from NSE (Natio
 - **Comprehensive Stock Info**: 
   - Current price and daily changes
   - Day high/low ranges
-  - 52-week high/low ranges
   - Trading volume
   - Market capitalization
-  - Exchange badges
+  - Historical price charts (via KiteConnect and demo data)
+- **Professional Charts**: Integration with TradingView widgets for advanced charting
 
 ## 🏛️ Supported Exchanges
 
 - **NSE (National Stock Exchange)**: Primary Indian stock exchange
-- **BSE (Bombay Stock Exchange)**: Asia's oldest stock exchange
+- **Market Status**: Real-time market status with trading hours
+
+## 📊 API Integration
+
+The application uses **Zerodha KiteConnect API** for professional-grade market data:
+
+### 🔑 Authentication Modes
+- **Demo Mode** (Default): Uses simulated data for development and testing
+- **Live Mode**: Requires Zerodha KiteConnect authentication for real-time data
+
+### 🌐 API Features
+- **Real-time Quotes**: Live stock prices and market data
+- **Historical Data**: Historical price data for charting
+- **Market Status**: Live market status and trading hours
+- **Symbol Search**: Comprehensive stock symbol database
+- **Multiple Quotes**: Batch quote fetching for efficiency
+
+### 📈 Data Sources
+- **Live Data**: Zerodha KiteConnect API (when authenticated)
+- **Demo Data**: Realistic simulated market data for development
+- **Charts**: TradingView integration for professional charting
+- **Backup**: Automatic fallback to demo data if API is unavailable
 
 ## 📊 Popular Indian Stocks Supported
 
@@ -42,7 +64,8 @@ The app includes auto-suggestions for popular Indian stocks including:
 - **Frontend**: React 18 with TypeScript
 - **Build Tool**: Vite
 - **Database**: Firebase Firestore
-- **Stock Data**: Yahoo Finance API
+- **Stock Data**: Zerodha KiteConnect API
+- **Charts**: TradingView Widgets + Custom Canvas Charts
 - **Styling**: CSS3 with modern design
 - **State Management**: React Hooks
 
@@ -64,12 +87,17 @@ The app includes auto-suggestions for popular Indian stocks including:
    - Enable Firestore Database
    - Copy your Firebase config to `src/config/firebase.ts`
 
-4. **Run the development server**
+4. **Zerodha KiteConnect Setup (Optional)**
+   - For live data, register at [Kite Connect](https://kite.trade/)
+   - Get your API key and secret
+   - The app works in demo mode without authentication
+
+5. **Run the development server**
    ```bash
    npm run dev
    ```
 
-5. **Build for production**
+6. **Build for production**
    ```bash
    npm run build
    ```
@@ -83,22 +111,55 @@ The application requires Firebase Firestore for storing user stock portfolios. M
 3. Set up proper security rules for your use case
 4. Replace the Firebase configuration in `src/config/firebase.ts`
 
+## 🔑 KiteConnect Integration
+
+The app includes comprehensive KiteConnect API integration:
+
+### Demo Mode (Default)
+- Works without any authentication
+- Uses realistic simulated market data
+- Perfect for development and testing
+- All features available with demo data
+
+### Live Mode (Optional)
+- Requires Zerodha KiteConnect account
+- Real-time market data
+- Historical data for charts
+- Live market status
+
+### Authentication Flow
+```javascript
+// The app automatically handles authentication
+// Demo mode is used when not authenticated
+// Live data requires KiteConnect login flow
+```
+
 ## 📱 Usage
 
 1. **Add Stocks**: Click "Add Stock" and enter Indian stock symbols (e.g., RELIANCE, TCS)
-2. **Select Exchange**: Choose between NSE or BSE
-3. **Auto-complete**: Type stock symbols to see suggestions
-4. **View Details**: Stock cards show comprehensive market data
-5. **Real-time Updates**: Data refreshes automatically
-6. **Remove Stocks**: Click the × button to remove stocks from your portfolio
+2. **Auto-complete**: Type stock symbols to see suggestions
+3. **Real-time Data**: View live prices, changes, and market data
+4. **Charts**: Interactive price charts with historical data
+5. **Portfolio Management**: Add/remove stocks, persistent storage
+6. **Demo Mode**: Full functionality without requiring API authentication
 
-## 🌐 API Integration
+## 🌐 API Architecture
 
-The application uses Yahoo Finance API to fetch real-time Indian stock data:
-- **Endpoint**: `https://query1.finance.yahoo.com/v7/finance/quote`
-- **Symbol Format**: 
-  - NSE stocks: `SYMBOL.NS` (e.g., `RELIANCE.NS`)
-  - BSE stocks: `SYMBOL.BO` (e.g., `RELIANCE.BO`)
+The application features a robust API integration system:
+
+### KiteConnect Service (`src/services/kiteConnectAPI.ts`)
+- **Authentication**: Handles KiteConnect login flow
+- **Demo Mode**: Comprehensive fallback with realistic data
+- **Quote Fetching**: Single and batch quote operations
+- **Historical Data**: Chart data with configurable intervals
+- **Market Status**: Live trading status and hours
+- **Error Handling**: Graceful degradation to demo mode
+
+### Stock Service (`src/services/stockService.ts`)
+- **Firebase Integration**: Firestore operations
+- **Real-time Updates**: Live stock price updates
+- **Caching**: Efficient data management
+- **Symbol Validation**: Indian stock symbol validation
 
 ## 💱 Currency & Formatting
 
@@ -107,32 +168,39 @@ The application uses Yahoo Finance API to fetch real-time Indian stock data:
   - Lakhs (L) for 100K+
   - Crores (Cr) for 10M+
   - Follows Indian numbering conventions
+- **Utilities**: Centralized formatting in `src/utils/formatters.ts`
 
 ## 🎨 Features Overview
 
-- **Real-time Data**: Live prices from Yahoo Finance
-- **Exchange Badges**: Visual indicators for NSE/BSE
+- **Real-time Data**: Live prices from Zerodha KiteConnect API
+- **Demo Mode**: Full functionality without authentication
+- **Professional Charts**: TradingView integration + custom canvas charts
 - **Smart Validation**: Indian stock symbol validation
 - **Responsive Design**: Works on desktop and mobile
-- **Error Handling**: Graceful error handling with user feedback
+- **Error Handling**: Graceful error handling with automatic fallback
 - **Loading States**: Visual feedback during API calls
+- **Historical Data**: Price history for charting and analysis
 
 ## 📄 Project Structure
 
 ```
 src/
-├── components/          # React components
-│   ├── AddStockModal.tsx   # Modal for adding new stocks
-│   ├── StockCard.tsx       # Individual stock display card
-│   └── StockList.tsx       # List of all stocks
-├── services/           # API and business logic
-│   ├── indianStockAPI.ts   # Yahoo Finance API integration
-│   └── stockService.ts     # Firebase operations
-├── types/              # TypeScript type definitions
-│   └── Stock.ts           # Stock-related interfaces
-├── config/             # Configuration files
-│   └── firebase.ts        # Firebase configuration
-└── App.tsx             # Main application component
+├── components/             # React components
+│   ├── AddStockModal.tsx      # Modal for adding new stocks
+│   ├── StockCard.tsx          # Individual stock display card
+│   ├── StockList.tsx          # List of all stocks
+│   ├── MiniChartWidget.tsx    # TradingView chart widget
+│   └── SimpleChart.tsx        # Custom canvas chart with KiteConnect data
+├── services/              # API and business logic
+│   ├── kiteConnectAPI.ts      # Zerodha KiteConnect API integration
+│   └── stockService.ts        # Firebase operations & API coordination
+├── utils/                 # Utility functions
+│   └── formatters.ts          # Indian number formatting utilities
+├── types/                 # TypeScript type definitions
+│   └── Stock.ts              # Stock-related interfaces
+├── config/                # Configuration files
+│   └── firebase.ts           # Firebase configuration
+└── App.tsx                # Main application component
 ```
 
 ## 🚀 Deployment
@@ -147,13 +215,14 @@ Run `npm run build` to create production-ready files in the `dist` directory.
 
 ## 📈 Future Enhancements
 
-- Historical price charts
+- KiteConnect authentication UI for live data
+- Advanced portfolio analytics
 - Stock alerts and notifications
-- Portfolio performance tracking
 - Sector-wise categorization
 - Market indices (NIFTY, SENSEX) tracking
 - News integration
 - Technical indicators
+- Options and derivatives support
 
 ## 🤝 Contributing
 

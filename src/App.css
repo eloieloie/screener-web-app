@@ -7,6 +7,63 @@
   flex-direction: column;
 }
 
+/* Navigation Menu */
+.app-nav {
+  position: fixed;
+  top: var(--space-6);
+  right: var(--space-6);
+  z-index: var(--z-overlay);
+}
+
+.nav-menu {
+  display: flex;
+  gap: var(--space-2);
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 2px solid rgba(37, 99, 235, 0.3);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+.nav-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  border-radius: var(--radius-xl);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--color-gray-700);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.nav-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  color: var(--color-gray-800);
+  transform: translateY(-1px);
+}
+
+.nav-btn.active {
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+  color: white;
+  box-shadow: var(--shadow-md);
+}
+
+.nav-btn.active:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.nav-icon {
+  font-size: var(--font-size-base);
+}
+
 /* Header with glass morphism effect */
 .app-header {
   background: var(--bg-glass-light);
@@ -252,6 +309,25 @@
 
 /* Responsive Design */
 @media (max-width: 768px) {
+  .app-nav {
+    top: var(--space-4);
+    right: var(--space-4);
+  }
+  
+  .nav-menu {
+    padding: var(--space-1);
+    gap: var(--space-1);
+  }
+  
+  .nav-btn {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--font-size-xs);
+  }
+  
+  .nav-icon {
+    font-size: var(--font-size-sm);
+  }
+  
   .app-header {
     padding: var(--space-6) var(--space-4);
   }
@@ -294,6 +370,19 @@
 }
 
 @media (max-width: 480px) {
+  .app-nav {
+    top: var(--space-3);
+    right: var(--space-3);
+  }
+  
+  .nav-btn {
+    gap: var(--space-1);
+  }
+  
+  .nav-btn span:not(.nav-icon) {
+    display: none; /* Hide text on very small screens, show only icons */
+  }
+  
   .app-header h1 {
     font-size: var(--font-size-2xl);
   }
