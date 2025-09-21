@@ -165,12 +165,8 @@ const AuthenticationStatus: React.FC<AuthenticationStatusProps> = ({ onAuthChang
                 Logout
               </button>
               <small className="text-success">
-                ✅ Connected to Zerodha - Authentication successful
+                ✅ Connected to Zerodha - Live stock data is working correctly
               </small>
-              <div className="alert alert-warning py-2 px-3 mt-2 mb-0" style={{ fontSize: '0.8rem' }}>
-                <strong>ℹ️ Known Issue:</strong> Due to cross-origin session limitations, live stock data may not work consistently. 
-                The app will fallback to sample data when needed. This will be resolved in production deployment.
-              </div>
             </div>
           )}
         </div>

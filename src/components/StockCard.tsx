@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { Stock } from '../types/Stock'
 import { formatVolume } from '../utils/formatters'
-import MiniChartWidget from './MiniChartWidget'
 import SimpleChart from './SimpleChart'
 import KiteConnectAPI from '../services/KiteConnectAPI'
 
@@ -12,7 +11,6 @@ interface StockCardProps {
 
 const StockCard = ({ stock, onRemove }: StockCardProps) => {
   const [showChart, setShowChart] = useState(true) // Show charts by default for Firebase stocks
-  const [chartType, setChartType] = useState<'tradingview' | 'simple'>('simple')
   const [liveStock, setLiveStock] = useState<Stock>(stock)
   const [isLoading, setIsLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -99,10 +97,13 @@ const StockCard = ({ stock, onRemove }: StockCardProps) => {
   }
 
   const formatPrice = (price: number) => `₹${price.toFixed(2)}`
-  const formatChange = (change: number) => change >= 0 ? `+₹${change.toFixed(2)}` : `-₹${Math.abs(change).toFixed(2)}`
+  const formatChange = (change: number) => {
+    if (change === 0) return '₹0.00';
+    return change >= 0 ? `+₹${change.toFixed(2)}` : `-₹${Math.abs(change).toFixed(2)}`;
+  }
   const formatChangePercent = (percent: number | string) => {
     const numPercent = typeof percent === 'string' ? parseFloat(percent) : percent;
-    if (isNaN(numPercent)) return '0.00%';
+    if (isNaN(numPercent) || numPercent === 0) return '0.00%';
     return `${numPercent >= 0 ? '+' : ''}${numPercent.toFixed(2)}%`;
   }
   
@@ -197,12 +198,16 @@ const StockCard = ({ stock, onRemove }: StockCardProps) => {
         {/* Change Indicators */}
         {kiteAPI.isReady() && liveStock.price > 0 ? (
           <div className="d-flex gap-2 mb-3">
-            <span className={`badge ${liveStock.change >= 0 ? 'bg-success' : 'bg-danger'}`}>
-              {formatChange(liveStock.change)}
-            </span>
-            <span className={`badge ${liveStock.changePercent >= 0 ? 'bg-success' : 'bg-danger'}`}>
-              {formatChangePercent(liveStock.changePercent)}
-            </span>
+            {liveStock.change !== 0 && (
+              <span className={`badge ${liveStock.change >= 0 ? 'bg-success' : 'bg-danger'}`}>
+                {formatChange(liveStock.change)}
+              </span>
+            )}
+            {liveStock.changePercent !== 0 && (
+              <span className={`badge ${liveStock.changePercent >= 0 ? 'bg-success' : 'bg-danger'}`}>
+                {formatChangePercent(liveStock.changePercent)}
+              </span>
+            )}
           </div>
         ) : (
           <div className="d-flex gap-2 mb-3">
@@ -211,25 +216,32 @@ const StockCard = ({ stock, onRemove }: StockCardProps) => {
         )}
 
         {/* Stock Stats */}
-        {liveStock.volume && (
+        {(
+          (liveStock.volume && liveStock.volume > 0) ||
+          (liveStock.marketCap && liveStock.marketCap !== '0' && liveStock.marketCap !== '') ||
+          (liveStock.dayHigh && liveStock.dayLow && liveStock.dayHigh > 0 && liveStock.dayLow > 0) ||
+          (liveStock.fiftyTwoWeekHigh && liveStock.fiftyTwoWeekLow && liveStock.fiftyTwoWeekHigh > 0 && liveStock.fiftyTwoWeekLow > 0)
+        ) && (
           <div className="row g-2 mb-3">
-            <div className="col-12">
-              <small className="text-muted">Volume:</small>
-              <div className="fw-bold">{formatVolume(liveStock.volume)}</div>
-            </div>
-            {liveStock.marketCap && (
+            {liveStock.volume && liveStock.volume > 0 && (
+              <div className="col-12">
+                <small className="text-muted">Volume:</small>
+                <div className="fw-bold">{formatVolume(liveStock.volume)}</div>
+              </div>
+            )}
+            {liveStock.marketCap && liveStock.marketCap !== '0' && liveStock.marketCap !== '' && (
               <div className="col-12">
                 <small className="text-muted">Market Cap:</small>
                 <div className="fw-bold">{liveStock.marketCap}</div>
               </div>
             )}
-            {liveStock.dayHigh && liveStock.dayLow && (
+            {liveStock.dayHigh && liveStock.dayLow && liveStock.dayHigh > 0 && liveStock.dayLow > 0 && (
               <div className="col-12">
                 <small className="text-muted">Day Range:</small>
                 <div className="fw-bold">₹{liveStock.dayLow.toFixed(2)} - ₹{liveStock.dayHigh.toFixed(2)}</div>
               </div>
             )}
-            {liveStock.fiftyTwoWeekHigh && liveStock.fiftyTwoWeekLow && (
+            {liveStock.fiftyTwoWeekHigh && liveStock.fiftyTwoWeekLow && liveStock.fiftyTwoWeekHigh > 0 && liveStock.fiftyTwoWeekLow > 0 && (
               <div className="col-12">
                 <small className="text-muted">52W Range:</small>
                 <div className="fw-bold">₹{liveStock.fiftyTwoWeekLow.toFixed(2)} - ₹{liveStock.fiftyTwoWeekHigh.toFixed(2)}</div>
@@ -247,43 +259,17 @@ const StockCard = ({ stock, onRemove }: StockCardProps) => {
             >
               📊 {showChart ? 'Hide' : 'Show'} Chart
             </button>
-            
-            {showChart && (
-              <div className="btn-group btn-group-sm" role="group">
-                <button 
-                  className={`btn ${chartType === 'simple' ? 'btn-secondary' : 'btn-outline-secondary'}`}
-                  onClick={() => setChartType('simple')}
-                >
-                  Simple
-                </button>
-                <button 
-                  className={`btn ${chartType === 'tradingview' ? 'btn-secondary' : 'btn-outline-secondary'}`}
-                  onClick={() => setChartType('tradingview')}
-                >
-                  TradingView
-                </button>
-              </div>
-            )}
           </div>
 
           {/* Chart Display */}
           {showChart && (
             <div className="chart-container">
-              {chartType === 'simple' ? (
-                <SimpleChart 
-                  symbol={liveStock.symbol} 
-                  width={280} 
-                  height={140}
-                  className="w-100"
-                />
-              ) : (
-                <MiniChartWidget 
-                  symbol={liveStock.symbol}
-                  width="100%"
-                  height="140px"
-                  className="w-100"
-                />
-              )}
+              <SimpleChart 
+                symbol={liveStock.symbol} 
+                width={280} 
+                height={140}
+                className="w-100"
+              />
             </div>
           )}
         </div>

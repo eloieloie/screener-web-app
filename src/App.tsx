@@ -2,9 +2,10 @@ import { useState } from 'react'
 import Analytics from './components/Analytics'
 import AuthenticationStatus from './components/AuthenticationStatus'
 import StocksPage from './pages/StocksPage'
+import ChartsPage from './pages/ChartsPage'
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<'dashboard' | 'stocks' | 'analytics'>('dashboard')
+  const [currentPage, setCurrentPage] = useState<'dashboard' | 'stocks' | 'charts' | 'analytics'>('dashboard')
 
   return (
     <div className="min-vh-100 bg-light">
@@ -26,10 +27,16 @@ function App() {
               📊 My Stocks
             </button>
             <button 
+              className={`btn ${currentPage === 'charts' ? 'btn-primary' : 'btn-outline-primary'} me-2`}
+              onClick={() => setCurrentPage('charts')}
+            >
+              📈 Charts
+            </button>
+            <button 
               className={`btn ${currentPage === 'analytics' ? 'btn-primary' : 'btn-outline-primary'}`}
               onClick={() => setCurrentPage('analytics')}
             >
-              📈 Analytics
+              � Analytics
             </button>
           </div>
         </div>
@@ -100,9 +107,15 @@ function App() {
                       </button>
                       <button 
                         className="btn btn-outline-primary"
+                        onClick={() => setCurrentPage('charts')}
+                      >
+                        📈 View Charts
+                      </button>
+                      <button 
+                        className="btn btn-outline-primary"
                         onClick={() => setCurrentPage('analytics')}
                       >
-                        📈 View Analytics
+                        � View Analytics
                       </button>
                     </div>
                   </div>
@@ -112,6 +125,8 @@ function App() {
           </>
         ) : currentPage === 'stocks' ? (
           <StocksPage />
+        ) : currentPage === 'charts' ? (
+          <ChartsPage />
         ) : (
           <Analytics />
         )}
