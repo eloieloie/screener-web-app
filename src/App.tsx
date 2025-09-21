@@ -52,50 +52,6 @@ function App() {
       <div className="container mt-4">
         {currentPage === 'dashboard' ? (
           <>
-            {/* Welcome Section */}
-            <div className="row mb-4">
-              <div className="col-12">
-                <div className="card border-0 shadow-sm">
-                  <div className="card-body text-center py-5">
-                    <div className="display-1 mb-3">📊</div>
-                    <h1 className="h2 mb-3">Welcome to Stock Screener</h1>
-                    <p className="lead text-muted mb-4">
-                      Track your portfolio, analyze market trends, and make informed investment decisions.
-                    </p>
-                    <div className="row g-3 mt-4">
-                      <div className="col-md-4">
-                        <div className="card h-100 border-0 bg-light">
-                          <div className="card-body text-center">
-                            <div className="h2 mb-2">📈</div>
-                            <h5>Real-time Data</h5>
-                            <p className="small text-muted">Get live stock prices and market updates</p>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="col-md-4">
-                        <div className="card h-100 border-0 bg-light">
-                          <div className="card-body text-center">
-                            <div className="h2 mb-2">💼</div>
-                            <h5>Portfolio Tracking</h5>
-                            <p className="small text-muted">Monitor your investments and performance</p>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="col-md-4">
-                        <div className="card h-100 border-0 bg-light">
-                          <div className="card-body text-center">
-                            <div className="h2 mb-2">📊</div>
-                            <h5>Analytics</h5>
-                            <p className="small text-muted">Advanced charts and market analysis</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
             {/* Authentication Status */}
             <AuthenticationStatus />
 
