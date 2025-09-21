@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import KiteConnectAPI from '../services/kiteConnectAPI'
-import './SimpleChart.css'
+import KiteConnectAPI from '../services/KiteConnectAPI'
 
 interface SimpleChartProps {
   symbol: string
@@ -9,7 +8,7 @@ interface SimpleChartProps {
   className?: string
 }
 
-const kiteAPI = new KiteConnectAPI()
+const kiteAPI = KiteConnectAPI.getInstance()
 
 function SimpleChart({ symbol, width = 300, height = 150, className = "" }: SimpleChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -41,6 +40,12 @@ function SimpleChart({ symbol, width = 300, height = 150, className = "" }: Simp
       
       setIsLoading(true)
       try {
+        // Check authentication before making API calls
+        if (!kiteAPI.isReady()) {
+          console.warn('Authentication required for historical data, using sample data')
+          return generateSampleData()
+        }
+        
         const toDate = new Date()
         const fromDate = new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000) // 30 days ago
         
@@ -194,20 +199,21 @@ function SimpleChart({ symbol, width = 300, height = 150, className = "" }: Simp
   const change = parseFloat(canvas?.dataset.change || '0')
 
   return (
-    <div className={`simple-chart ${className}`}>
-      <div className="chart-title">
-        <span className="symbol-name">{symbol}</span>
+    <div className={`d-flex flex-column ${className}`}>
+      <div className="d-flex justify-content-between align-items-center mb-2">
+        <span className="fw-bold small">{symbol}</span>
         {isLoading ? (
-          <span className="chart-loading">Loading...</span>
+          <span className="text-muted small">Loading...</span>
         ) : (
-          <span className={`chart-change ${change >= 0 ? 'positive' : 'negative'}`}>
+          <span className={`badge ${change >= 0 ? 'bg-success' : 'bg-danger'}`}>
             {changePercent}
           </span>
         )}
       </div>
       <canvas 
         ref={canvasRef}
-        className="chart-canvas"
+        className="border rounded"
+        style={{ width: '100%', height: 'auto' }}
       />
     </div>
   )

@@ -3,8 +3,8 @@ import type { Stock, AddStockForm } from './types/Stock'
 import StockList from './components/StockList'
 import AddStockModal from './components/AddStockModal'
 import Analytics from './components/Analytics'
-import { subscribeToStocks, addStock as addStockToFirebase, deleteStock, updateStock } from './services/stockService'
-import './App.css'
+import AuthenticationStatus from './components/AuthenticationStatus'
+import { subscribeToStocks, addStock as addStockToFirebase, deleteStock } from './services/stockService'
 
 function App() {
   const [stocks, setStocks] = useState<Stock[]>([])
@@ -13,16 +13,28 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState<'dashboard' | 'analytics'>('dashboard')
 
-  // Subscribe to real-time stock updates
+  // Subscribe to real-time stock updates with error handling
   useEffect(() => {
-    const unsubscribe = subscribeToStocks((stockList) => {
-      setStocks(stockList)
+    let unsubscribe: (() => void) | null = null
+    
+    try {
+      unsubscribe = subscribeToStocks((stockList) => {
+        setStocks(stockList)
+        setLoading(false)
+        setError(null)
+      })
+    } catch (err) {
+      console.error('Error setting up stock subscription:', err)
+      setError('Failed to connect to the database. Please check your internet connection.')
       setLoading(false)
-      setError(null)
-    })
+    }
 
     // Cleanup subscription on unmount
-    return () => unsubscribe()
+    return () => {
+      if (unsubscribe) {
+        unsubscribe()
+      }
+    }
   }, [])
 
   const addStock = async (formData: AddStockForm) => {
@@ -46,87 +58,93 @@ function App() {
     }
   }
 
-  const updateStockPrice = async (id: string, newPrice: number) => {
-    try {
-      await updateStock(id, { price: newPrice })
-      console.log(`Updated stock ${id} with new price: ${newPrice}`)
-    } catch (error) {
-      console.error('Failed to update stock price:', error)
-    }
-  }
-
   return (
-    <div className="app">
-      {/* Navigation Menu */}
-      <nav className="app-nav">
-        <div className="nav-menu">
-          <button 
-            className={`nav-btn ${currentPage === 'dashboard' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('dashboard')}
-          >
-            <span className="nav-icon">📊</span>
-            Dashboard
-          </button>
-          <button 
-            className={`nav-btn ${currentPage === 'analytics' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('analytics')}
-          >
-            <span className="nav-icon">📈</span>
-            Analytics
-          </button>
+    <div className="min-vh-100 bg-light">
+      {/* Bootstrap Navigation */}
+      <nav className="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
+        <div className="container">
+          <span className="navbar-brand h1 mb-0">📊 Stock Screener</span>
+          <div className="navbar-nav ms-auto">
+            <button 
+              className={`btn ${currentPage === 'dashboard' ? 'btn-primary' : 'btn-outline-primary'} me-2`}
+              onClick={() => setCurrentPage('dashboard')}
+            >
+              📊 Dashboard
+            </button>
+            <button 
+              className={`btn ${currentPage === 'analytics' ? 'btn-primary' : 'btn-outline-primary'}`}
+              onClick={() => setCurrentPage('analytics')}
+            >
+              📈 Analytics
+            </button>
+          </div>
         </div>
       </nav>
 
-      {currentPage === 'dashboard' ? (
-        <main className="app-main">
-        <div className="actions-bar">
-          <button 
-            className="add-stock-btn"
-            onClick={() => setIsModalOpen(true)}
-          >
-            <span>+</span>
-            Add Stock
-          </button>
-          <div className="stock-count">
-            {stocks.length} stock{stocks.length !== 1 ? 's' : ''} tracked
-          </div>
-        </div>
+      <div className="container mt-4">
+        {/* Authentication Status - shown on all pages */}
+        <AuthenticationStatus />
+        
+        {currentPage === 'dashboard' ? (
+          <>
+            <div className="d-flex justify-content-between align-items-center mb-4">
+              <button 
+                className="btn btn-success"
+                onClick={() => setIsModalOpen(true)}
+              >
+                <span className="me-1">+</span>
+                Add Stock
+              </button>
+              <div className="badge bg-secondary fs-6">
+                {stocks.length} stock{stocks.length !== 1 ? 's' : ''} tracked
+              </div>
+            </div>
 
-        {error && (
-          <div className="error-message">
-            {error}
-          </div>
+            {error && (
+              <div className="alert alert-danger" role="alert">
+                {error}
+              </div>
+            )}
+
+            {stocks.length > 0 && stocks.every(stock => stock.price === 0) && (
+              <div className="alert alert-info" role="alert">
+                <strong>💡 Live Data Unavailable</strong><br/>
+                Your stocks are saved, but live prices require authentication with Zerodha Kite. 
+                Please log in using the authentication section above to see real-time market data.
+              </div>
+            )}
+
+            {loading ? (
+              <div className="text-center py-5">
+                <div className="spinner-border text-primary" role="status">
+                  <span className="visually-hidden">Loading...</span>
+                </div>
+                <p className="mt-3">Loading your stocks...</p>
+              </div>
+            ) : stocks.length === 0 ? (
+              <div className="text-center py-5">
+                <div className="display-1">📈</div>
+                <h2 className="h3 mt-3">Start Your Investment Journey</h2>
+                <p className="text-muted">Add your first stock to begin tracking your portfolio performance and make informed investment decisions.</p>
+              </div>
+            ) : (
+              <StockList 
+                stocks={stocks} 
+                onRemoveStock={removeStock}
+              />
+            )}
+          </>
+        ) : (
+          <Analytics />
         )}
 
-        {loading ? (
-          <div className="loading-state">
-            <div>📊</div>
-            <p>Loading your stocks...</p>
-          </div>
-        ) : stocks.length === 0 ? (
-          <div className="empty-state animate-fade-in">
-            <div className="empty-icon">�</div>
-            <h2>Start Your Investment Journey</h2>
-            <p>Add your first stock to begin tracking your portfolio performance and make informed investment decisions.</p>
-          </div>
-        ) : (
-          <StockList 
-            stocks={stocks} 
-            onRemoveStock={removeStock}
-            onUpdatePrice={updateStockPrice}
+        {isModalOpen && (
+          <AddStockModal 
+            onAddStock={addStock}
+            onClose={() => setIsModalOpen(false)}
           />
         )}
-        </main>
-      ) : (
-        <Analytics />
-      )}
-
-      {isModalOpen && (
-        <AddStockModal 
-          onAddStock={addStock}
-          onClose={() => setIsModalOpen(false)}
-        />
-      )}
+      </div>
     </div>
   )
 }

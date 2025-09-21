@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { AddStockForm } from '../types/Stock'
 import { getAvailableSymbols } from '../services/stockService'
-import './AddStockModal.css'
 
 interface AddStockModalProps {
   onAddStock: (stock: AddStockForm) => Promise<void> | void
@@ -25,8 +24,12 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
     const loadSymbols = async () => {
       setIsLoadingSymbols(true)
       try {
-        const symbols = await getAvailableSymbols()
-        setAvailableSymbols(symbols.slice(0, 100)) // Limit to first 100 for performance
+        const instruments = await getAvailableSymbols()
+        const symbolStrings = instruments
+          .filter(inst => inst.instrument_type === 'EQ')
+          .map(inst => inst.tradingsymbol)
+          .slice(0, 100) // Limit to first 100 for performance
+        setAvailableSymbols(symbolStrings)
       } catch (error) {
         console.error('Failed to load symbols:', error)
       } finally {
@@ -113,136 +116,127 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Add New Stock</h2>
-          <button className="close-btn" onClick={onClose} disabled={isSubmitting}>×</button>
-        </div>
-        
-        <form onSubmit={handleSubmit} className="stock-form">
-          <div className="form-group" style={{ position: 'relative' }}>
-            <label htmlFor="symbol">Stock Symbol *</label>
-            <input
-              id="symbol"
-              type="text"
-              value={formData.symbol}
-              onChange={(e) => handleInputChange('symbol', e.target.value.toUpperCase())}
-              placeholder="e.g., RELIANCE, TCS, INFY"
-              className={errors.symbol ? 'error' : ''}
-              maxLength={20}
-              disabled={isSubmitting}
-            />
-            {errors.symbol && <span className="error-message">{errors.symbol}</span>}
-            
-            {/* Loading indicator */}
-            {isLoadingSymbols && (
-              <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-                Loading available symbols...
-              </div>
-            )}
-            
-            {/* Suggestions dropdown */}
-            {suggestions.length > 0 && (
-              <div className="suggestions-dropdown" style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                right: 0,
-                background: 'white',
-                border: '1px solid #ddd',
-                borderRadius: '4px',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                zIndex: 1000,
-                maxHeight: '200px',
-                overflowY: 'auto'
-              }}>
-                {suggestions.map((symbol, index) => (
-                  <div
-                    key={`${symbol}-${index}`}
-                    className="suggestion-item"
-                    onClick={() => selectSuggestion(symbol)}
-                    style={{
-                      padding: '8px 12px',
-                      cursor: 'pointer',
-                      borderBottom: '1px solid #eee',
-                      fontSize: '14px'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
-                  >
-                    <div style={{ fontWeight: 'bold' }}>{symbol}</div>
-                    <div style={{ color: '#666', fontSize: '12px' }}>
-                      NSE Symbol
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="name">Company Name *</label>
-            <input
-              id="name"
-              type="text"
-              value={formData.name}
-              onChange={(e) => handleInputChange('name', e.target.value)}
-              placeholder="e.g., Reliance Industries Limited"
-              className={errors.name ? 'error' : ''}
-              disabled={isSubmitting}
-            />
-            {errors.name && <span className="error-message">{errors.name}</span>}
-            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-              This will be updated automatically when the stock is added
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="exchange">Exchange *</label>
-            <select
-              id="exchange"
-              value={formData.exchange}
-              onChange={(e) => handleInputChange('exchange', e.target.value as 'NSE' | 'BSE')}
-              className={errors.exchange ? 'error' : ''}
-              disabled={isSubmitting}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                border: '1px solid #ddd',
-                borderRadius: '4px',
-                fontSize: '14px'
-              }}
-            >
-              <option value="NSE">NSE (National Stock Exchange)</option>
-              <option value="BSE">BSE (Bombay Stock Exchange) - Limited Support</option>
-            </select>
-            {errors.exchange && <span className="error-message">{errors.exchange}</span>}
-            {formData.exchange === 'BSE' && (
-              <div style={{ fontSize: '12px', color: '#f39c12', marginTop: '4px' }}>
-                ⚠️ BSE support is limited. Use NSE for better data availability.
-              </div>
-            )}
-          </div>
-
-          <div className="form-actions">
+    <div className="modal-backdrop show d-flex align-items-center justify-content-center" onClick={onClose}>
+      <div className="modal-dialog modal-lg" onClick={e => e.stopPropagation()}>
+        <div className="modal-content">
+          <div className="modal-header">
+            <h4 className="modal-title">Add New Stock</h4>
             <button 
               type="button" 
+              className="btn-close" 
               onClick={onClose} 
-              className="cancel-button"
+              disabled={isSubmitting}
+            ></button>
+          </div>
+          
+          <div className="modal-body">
+            <form onSubmit={handleSubmit}>
+              <div className="mb-3 position-relative">
+                <label htmlFor="symbol" className="form-label">Stock Symbol *</label>
+                <input
+                  id="symbol"
+                  type="text"
+                  className={`form-control ${errors.symbol ? 'is-invalid' : ''}`}
+                  value={formData.symbol}
+                  onChange={(e) => handleInputChange('symbol', e.target.value.toUpperCase())}
+                  placeholder="e.g., RELIANCE, TCS, INFY"
+                  maxLength={20}
+                  disabled={isSubmitting}
+                />
+                {errors.symbol && <div className="invalid-feedback">{errors.symbol}</div>}
+                
+                {/* Loading indicator */}
+                {isLoadingSymbols && (
+                  <div className="form-text text-muted">
+                    Loading available symbols...
+                  </div>
+                )}
+                
+                {/* Suggestions dropdown */}
+                {suggestions.length > 0 && (
+                  <div className="position-absolute w-100 bg-white border rounded shadow-sm" style={{ zIndex: 1000, top: '100%' }}>
+                    {suggestions.map((symbol, index) => (
+                      <div
+                        key={`${symbol}-${index}`}
+                        className="p-2 border-bottom cursor-pointer"
+                        onClick={() => selectSuggestion(symbol)}
+                        style={{ cursor: 'pointer' }}
+                        onMouseEnter={(e) => e.currentTarget.classList.add('bg-light')}
+                        onMouseLeave={(e) => e.currentTarget.classList.remove('bg-light')}
+                      >
+                        <div className="fw-bold">{symbol}</div>
+                        <small className="text-muted">NSE Symbol</small>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="mb-3">
+                <label htmlFor="name" className="form-label">Company Name *</label>
+                <input
+                  id="name"
+                  type="text"
+                  className={`form-control ${errors.name ? 'is-invalid' : ''}`}
+                  value={formData.name}
+                  onChange={(e) => handleInputChange('name', e.target.value)}
+                  placeholder="e.g., Reliance Industries Limited"
+                  disabled={isSubmitting}
+                />
+                {errors.name && <div className="invalid-feedback">{errors.name}</div>}
+                <div className="form-text">
+                  This will be updated automatically when the stock is added
+                </div>
+              </div>
+
+              <div className="mb-3">
+                <label htmlFor="exchange" className="form-label">Exchange *</label>
+                <select
+                  id="exchange"
+                  className={`form-select ${errors.exchange ? 'is-invalid' : ''}`}
+                  value={formData.exchange}
+                  onChange={(e) => handleInputChange('exchange', e.target.value as 'NSE' | 'BSE')}
+                  disabled={isSubmitting}
+                >
+                  <option value="NSE">NSE (National Stock Exchange)</option>
+                  <option value="BSE">BSE (Bombay Stock Exchange) - Limited Support</option>
+                </select>
+                {errors.exchange && <div className="invalid-feedback">{errors.exchange}</div>}
+                {formData.exchange === 'BSE' && (
+                  <div className="form-text text-warning">
+                    ⚠️ BSE support is limited. Use NSE for better data availability.
+                  </div>
+                )}
+              </div>
+            </form>
+          </div>
+
+          <div className="modal-footer">
+            <button 
+              type="button" 
+              className="btn btn-secondary"
+              onClick={onClose} 
               disabled={isSubmitting}
             >
               Cancel
             </button>
             <button 
-              type="submit" 
-              className="submit-button"
+              type="button"
+              className="btn btn-primary"
+              onClick={handleSubmit}
               disabled={isSubmitting}
             >
-              {isSubmitting ? 'Adding...' : 'Add Stock'}
+              {isSubmitting ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                  Adding...
+                </>
+              ) : (
+                'Add Stock'
+              )}
             </button>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   )

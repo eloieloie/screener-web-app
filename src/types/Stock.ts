@@ -16,6 +16,16 @@ export interface Stock {
   fiftyTwoWeekLow?: number;
 }
 
+// Database interface - only stores metadata, no price data
+export interface StockMetadata {
+  id: string;
+  symbol: string;
+  name: string;
+  exchange: 'NSE' | 'BSE';
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface AddStockForm {
   symbol: string; // User will enter just "RELIANCE", we'll add .NS/.BO
   name: string;

@@ -1,0 +1,36 @@
+{
+  "name": "screener-backend",
+  "version": "1.0.0",
+  "description": "Backend server for Screener Web App - Handles Zerodha KiteConnect API calls",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "build": "echo 'No build step required for Node.js'",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "zerodha",
+    "kiteconnect",
+    "stock",
+    "api",
+    "express",
+    "cors"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.1.5",
+    "dotenv": "^16.3.1",
+    "kiteconnect": "^5.1.0",
+    "express-session": "^1.17.3",
+    "cookie-parser": "^1.4.6"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

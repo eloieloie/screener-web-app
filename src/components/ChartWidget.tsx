@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import './ChartWidget.css'
+import { useEffect, useState, useRef, useCallback } from 'react'
+import KiteConnectAPI from '../services/KiteConnectAPI'
 
 interface ChartWidgetProps {
   symbol: string
@@ -15,6 +15,8 @@ interface StockData {
   volume: number
 }
 
+const kiteAPI = KiteConnectAPI.getInstance()
+
 function ChartWidget({ symbol, className = '' }: ChartWidgetProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -24,55 +26,44 @@ function ChartWidget({ symbol, className = '' }: ChartWidgetProps) {
   const yahooSymbol = symbol.endsWith('.NS') ? symbol : `${symbol}.NS`
   const yahooUrl = `https://finance.yahoo.com/quote/${yahooSymbol}/`
 
-  // Fetch stock data from a free API
-  const fetchStockData = async () => {
+  // Fetch stock data from KiteConnect API
+  const fetchStockData = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
 
-      // Generate mock data for demonstration (since free APIs have limitations)
-      const generateMockData = () => {
-        const data: StockData[] = []
-        const startPrice = Math.random() * 1000 + 500
-        let currentPrice = startPrice
-        
-        for (let i = 30; i >= 0; i--) {
-          const date = new Date()
-          date.setDate(date.getDate() - i)
-          
-          const change = (Math.random() - 0.5) * 20
-          const open = currentPrice
-          const close = currentPrice + change
-          const high = Math.max(open, close) + Math.random() * 10
-          const low = Math.min(open, close) - Math.random() * 10
-          const volume = Math.floor(Math.random() * 1000000 + 100000)
-          
-          data.push({
-            date: date.toISOString().split('T')[0],
-            open: Math.round(open * 100) / 100,
-            high: Math.round(high * 100) / 100,
-            low: Math.round(low * 100) / 100,
-            close: Math.round(close * 100) / 100,
-            volume
-          })
-          
-          currentPrice = close
-        }
-        
-        return data
+      // Fetch historical data from KiteConnect API
+      const toDate = new Date()
+      const fromDate = new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000) // 30 days ago
+      
+      const historicalData = await kiteAPI.getHistoricalData(symbol, fromDate, toDate, 'day')
+      
+      if (historicalData && historicalData.length > 0) {
+        // Convert KiteConnect data to our format
+        const chartData = historicalData.map(point => ({
+          date: point.date,
+          open: point.open,
+          high: point.high,
+          low: point.low,
+          close: point.close,
+          volume: point.volume
+        }))
+        setChartData(chartData)
+      } else {
+        throw new Error('No historical data available')
       }
-
-      // For demo purposes, we'll use mock data
-      // In production, you'd fetch from a real API like Alpha Vantage, IEX Cloud, etc.
-      const mockData = generateMockData()
-      setChartData(mockData)
+      
       setLoading(false)
       
-    } catch {
-      setError('Failed to fetch stock data')
+    } catch (error) {
+      console.error('Failed to fetch historical data:', error)
+      setError('Chart data unavailable - Backend server required for live data')
+      setChartData([])
       setLoading(false)
     }
-  }
+  }, [symbol])
+
+
 
   // Create chart using HTML5 Canvas
   const createChart = useCallback(() => {
@@ -211,7 +202,7 @@ function ChartWidget({ symbol, className = '' }: ChartWidgetProps) {
 
   useEffect(() => {
     fetchStockData()
-  }, [symbol])
+  }, [symbol, fetchStockData]) // Include all dependencies
 
   useEffect(() => {
     if (chartData.length > 0) {
@@ -251,68 +242,76 @@ function ChartWidget({ symbol, className = '' }: ChartWidgetProps) {
   }
 
   return (
-    <div className={`chart-widget ${className}`}>
-      <div className="chart-header">
-        <h3>📈 Price Chart - {symbol}</h3>
-        <div className="chart-controls">
+    <div className={`${className}`}>
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <h5 className="mb-0">📈 Price Chart - {symbol}</h5>
+        <div className="d-flex gap-2">
           <button 
-            className="refresh-btn"
+            className="btn btn-outline-primary btn-sm"
             onClick={() => fetchStockData()}
             disabled={loading}
           >
-            🔄 Refresh
+            {loading ? (
+              <>
+                <span className="spinner-border spinner-border-sm me-1"></span>
+                Loading...
+              </>
+            ) : (
+              <>🔄 Refresh</>
+            )}
           </button>
           <a 
             href={yahooUrl} 
             target="_blank" 
             rel="noopener noreferrer"
-            className="external-link"
+            className="btn btn-outline-secondary btn-sm"
           >
             Yahoo Finance →
           </a>
         </div>
       </div>
       
-      <div className="chart-container">
+      <div className="position-relative">
         {loading && (
-          <div className="chart-loading">
-            <div className="loading-spinner"></div>
-            <p>Loading chart data...</p>
+          <div className="position-absolute top-50 start-50 translate-middle text-center">
+            <div className="spinner-border text-primary mb-2"></div>
+            <p className="text-muted">Loading chart data...</p>
           </div>
         )}
         
         <canvas 
           ref={canvasRef}
-          className="chart-canvas"
+          className="w-100 border rounded"
           style={{ 
             display: loading ? 'none' : 'block',
-            width: '100%',
             height: '400px'
           }}
         />
         
         {chartData.length > 0 && !loading && (
-          <div className="chart-summary">
-            <div className="price-info">
-              <span className="current-price">
-                ₹{chartData[chartData.length - 1]?.close.toFixed(2)}
-              </span>
-              <span className={`price-change ${
-                chartData.length > 1 && 
-                chartData[chartData.length - 1].close > chartData[chartData.length - 2].close 
-                  ? 'positive' : 'negative'
-              }`}>
-                {chartData.length > 1 && (
-                  <>
-                    {chartData[chartData.length - 1].close > chartData[chartData.length - 2].close ? '+' : ''}
-                    {(chartData[chartData.length - 1].close - chartData[chartData.length - 2].close).toFixed(2)}
-                    ({(((chartData[chartData.length - 1].close - chartData[chartData.length - 2].close) / chartData[chartData.length - 2].close) * 100).toFixed(2)}%)
-                  </>
-                )}
-              </span>
-            </div>
-            <div className="chart-note">
-              📊 30-day price movement (Demo data)
+          <div className="mt-3 p-3 bg-light rounded">
+            <div className="d-flex justify-content-between align-items-center">
+              <div>
+                <span className="h5 me-3">
+                  ₹{chartData[chartData.length - 1]?.close.toFixed(2)}
+                </span>
+                <span className={`badge ${
+                  chartData.length > 1 && 
+                  chartData[chartData.length - 1].close > chartData[chartData.length - 2].close 
+                    ? 'bg-success' : 'bg-danger'
+                }`}>
+                  {chartData.length > 1 && (
+                    <>
+                      {chartData[chartData.length - 1].close > chartData[chartData.length - 2].close ? '+' : ''}
+                      {(chartData[chartData.length - 1].close - chartData[chartData.length - 2].close).toFixed(2)}
+                      ({(((chartData[chartData.length - 1].close - chartData[chartData.length - 2].close) / chartData[chartData.length - 2].close) * 100).toFixed(2)}%)
+                    </>
+                  )}
+                </span>
+              </div>
+              <small className="text-muted">
+                📊 30-day price movement (Requires backend for live data)
+              </small>
             </div>
           </div>
         )}

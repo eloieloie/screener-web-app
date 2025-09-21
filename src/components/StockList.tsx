@@ -1,23 +1,21 @@
 import type { Stock } from '../types/Stock'
 import StockCard from './StockCard'
-import './StockList.css'
 
 interface StockListProps {
   stocks: Stock[]
   onRemoveStock: (id: string) => void
-  onUpdatePrice: (id: string, newPrice: number) => void
 }
 
-const StockList = ({ stocks, onRemoveStock, onUpdatePrice }: StockListProps) => {
+const StockList = ({ stocks, onRemoveStock }: StockListProps) => {
   return (
-    <div className="stock-list">
+    <div className="row g-3">
       {stocks.map(stock => (
-        <StockCard 
-          key={stock.id}
-          stock={stock}
-          onRemove={() => onRemoveStock(stock.id)}
-          onUpdatePrice={(newPrice) => onUpdatePrice(stock.id, newPrice)}
-        />
+        <div key={stock.id} className="col-lg-4 col-md-6 col-sm-12">
+          <StockCard 
+            stock={stock}
+            onRemove={() => onRemoveStock(stock.id)}
+          />
+        </div>
       ))}
     </div>
   )

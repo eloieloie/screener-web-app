@@ -1,0 +1,34 @@
+# Cloud build configuration for Google Cloud Functions
+steps:
+  # Build step
+  - name: 'gcr.io/cloud-builders/npm'
+    args: ['install']
+    dir: 'cloud-function'
+
+  # Deploy step for Gen2 Cloud Function
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      - 'functions'
+      - 'deploy'
+      - 'screener-api'
+      - '--gen2'
+      - '--runtime=nodejs18'
+      - '--region=us-central1'
+      - '--source=cloud-function'
+      - '--entry-point=screenerApi'
+      - '--trigger=http'
+      - '--allow-unauthenticated'
+      - '--memory=512MiB'
+      - '--timeout=60s'
+      - '--max-instances=10'
+      - '--env-vars-file=cloud-function/.env.yaml'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
+
+# Cloud Build triggers
+# You can configure this to trigger on:
+# - Repository pushes
+# - Pull requests
+# - Manual triggers
