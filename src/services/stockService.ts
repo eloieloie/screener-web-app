@@ -32,6 +32,7 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
         symbol: stockData.symbol,
         name: stockData.name,
         exchange: stockData.exchange,
+        tags: stockData.tags || [],
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now()
       };
@@ -48,7 +49,8 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
         changePercent: 0,
         exchange: stockData.exchange,
         currency: 'INR',
-        marketCap: 'N/A'
+        marketCap: 'N/A',
+        tags: stockData.tags || []
       };
     }
     
@@ -64,16 +66,18 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
       symbol: stockData.symbol,
       name: stockData.name,
       exchange: stockData.exchange,
+      tags: stockData.tags || [],
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now()
     };
 
     const docRef = await addDoc(collection(db, STOCKS_COLLECTION), stockDocument);
 
-    // Return the live API data with the Firebase ID
+    // Return the live API data with the Firebase ID and tags
     return {
       ...stockDetails,
-      id: docRef.id
+      id: docRef.id,
+      tags: stockData.tags || []
     };
   } catch (error) {
     console.error('Error adding stock:', error);
@@ -90,7 +94,7 @@ export const getStocks = async (): Promise<Stock[]> => {
     
     const stockPromises: Promise<Stock>[] = [];
     querySnapshot.forEach((doc) => {
-      const metadata = doc.data(); // Only contains symbol, name, exchange, timestamps
+      const metadata = doc.data(); // Only contains symbol, name, exchange, tags, timestamps
       
       // Fetch ALL price data from API - nothing from database
       const stockPromise = kiteAPI.getStockQuote(metadata.symbol)
@@ -98,7 +102,8 @@ export const getStocks = async (): Promise<Stock[]> => {
           if (stockDetails) {
             return {
               ...stockDetails,
-              id: doc.id // Only use the Firebase ID, all other data from API
+              id: doc.id, // Only use the Firebase ID, all other data from API
+              tags: metadata.tags || [] // Include tags from metadata
             };
           } else {
             // Return basic metadata if API fails - no price data
@@ -111,7 +116,8 @@ export const getStocks = async (): Promise<Stock[]> => {
               changePercent: 0,
               exchange: metadata.exchange as 'NSE' | 'BSE',
               currency: 'INR',
-              marketCap: 'N/A'
+              marketCap: 'N/A',
+              tags: metadata.tags || []
             } as Stock;
           }
         })
@@ -127,7 +133,8 @@ export const getStocks = async (): Promise<Stock[]> => {
             changePercent: 0,
             exchange: metadata.exchange as 'NSE' | 'BSE',
             currency: 'INR',
-            marketCap: 'N/A'
+            marketCap: 'N/A',
+            tags: metadata.tags || []
           } as Stock;
         });
       stockPromises.push(stockPromise);
@@ -157,7 +164,8 @@ export const subscribeToStocks = (callback: (stocks: Stock[]) => void): (() => v
             if (stockDetails) {
               return {
                 ...stockDetails,
-                id: doc.id // Only Firebase ID, everything else from API
+                id: doc.id, // Only Firebase ID, everything else from API
+                tags: metadata.tags || [] // Include tags from metadata
               };
             } else {
               // Return basic metadata if API fails
@@ -170,7 +178,8 @@ export const subscribeToStocks = (callback: (stocks: Stock[]) => void): (() => v
                 changePercent: 0,
                 exchange: metadata.exchange as 'NSE' | 'BSE',
                 currency: 'INR',
-                marketCap: 'N/A'
+                marketCap: 'N/A',
+                tags: metadata.tags || []
               } as Stock;
             }
           })
@@ -186,7 +195,8 @@ export const subscribeToStocks = (callback: (stocks: Stock[]) => void): (() => v
               changePercent: 0,
               exchange: metadata.exchange as 'NSE' | 'BSE',
               currency: 'INR',
-              marketCap: 'N/A'
+              marketCap: 'N/A',
+              tags: metadata.tags || []
             } as Stock;
           });
         stockPromises.push(stockPromise);
@@ -201,7 +211,8 @@ export const subscribeToStocks = (callback: (stocks: Stock[]) => void): (() => v
           changePercent: 0,
           exchange: metadata.exchange as 'NSE' | 'BSE',
           currency: 'INR',
-          marketCap: 'N/A'
+          marketCap: 'N/A',
+          tags: metadata.tags || []
         };
         stockPromises.push(Promise.resolve(basicStock));
       }

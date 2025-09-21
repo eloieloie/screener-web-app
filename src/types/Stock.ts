@@ -14,6 +14,7 @@ export interface Stock {
   dayLow?: number;
   fiftyTwoWeekHigh?: number;
   fiftyTwoWeekLow?: number;
+  tags?: string[]; // Array of tags for categorization
 }
 
 // Database interface - only stores metadata, no price data
@@ -22,6 +23,7 @@ export interface StockMetadata {
   symbol: string;
   name: string;
   exchange: 'NSE' | 'BSE';
+  tags: string[]; // Array of tags for categorization
   createdAt: Date;
   updatedAt: Date;
 }
@@ -30,6 +32,7 @@ export interface AddStockForm {
   symbol: string; // User will enter just "RELIANCE", we'll add .NS/.BO
   name: string;
   exchange: 'NSE' | 'BSE';
+  tags: string[]; // Array of tags for categorization
 }
 
 export interface StockAPIResponse {

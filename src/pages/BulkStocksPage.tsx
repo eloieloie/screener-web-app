@@ -7,12 +7,14 @@ interface BulkStockEntry {
   symbol: string
   name: string
   exchange: 'NSE' | 'BSE'
+  tags: string[]
   status: 'pending' | 'adding' | 'success' | 'error'
   error?: string
 }
 
 const BulkStocksPage = () => {
   const [bulkText, setBulkText] = useState('')
+  const [bulkTags, setBulkTags] = useState('')
   const [stocks, setStocks] = useState<BulkStockEntry[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
   const [selectedExchange, setSelectedExchange] = useState<'NSE' | 'BSE'>('NSE')
@@ -39,12 +41,22 @@ const BulkStocksPage = () => {
   const parseBulkInput = () => {
     const lines = bulkText.trim().split('\n').filter(line => line.trim())
     const newStocks: BulkStockEntry[] = []
+    
+    // Parse tags from bulkTags input
+    const tags = bulkTags.trim() 
+      ? bulkTags.split(',').map(tag => tag.trim()).filter(tag => tag)
+      : []
 
     lines.forEach((line, index) => {
       const parts = line.trim().split(/[,\t]/).map(part => part.trim())
       
       if (parts.length >= 1) {
-        const symbol = parts[0].toUpperCase()
+        let symbol = parts[0].toUpperCase()
+        
+        // Clean common suffixes from symbols
+        symbol = symbol.replace(/\.(NS|BSE|BO)\.?$/i, '')
+        symbol = symbol.replace(/\.+$/, '') // Remove trailing dots
+        
         const name = parts[1] || `${symbol} Company` // Default name if not provided
         
         newStocks.push({
@@ -52,6 +64,7 @@ const BulkStocksPage = () => {
           symbol,
           name,
           exchange: selectedExchange,
+          tags: tags, // Apply the parsed tags to all stocks
           status: 'pending'
         })
       }
@@ -61,11 +74,17 @@ const BulkStocksPage = () => {
   }
 
   const addPopularStocks = () => {
+    // Parse tags from bulkTags input for popular stocks too
+    const tags = bulkTags.trim() 
+      ? bulkTags.split(',').map(tag => tag.trim()).filter(tag => tag)
+      : ['popular', 'blue-chip'] // Default tags for popular stocks
+      
     const newStocks: BulkStockEntry[] = popularStocks.map((stock, index) => ({
       id: `popular-${Date.now()}-${index}`,
       symbol: stock.symbol,
       name: stock.name,
       exchange: selectedExchange,
+      tags: tags,
       status: 'pending'
     }))
 
@@ -96,7 +115,8 @@ const BulkStocksPage = () => {
         const stockData: AddStockForm = {
           symbol: stock.symbol,
           name: stock.name,
-          exchange: stock.exchange
+          exchange: stock.exchange,
+          tags: stock.tags
         }
         
         await addStockToFirebase(stockData)
@@ -120,6 +140,7 @@ const BulkStocksPage = () => {
   const clearAll = () => {
     setStocks([])
     setBulkText('')
+    setBulkTags('')
   }
 
   const getStatusIcon = (status: BulkStockEntry['status']) => {
@@ -179,6 +200,21 @@ const BulkStocksPage = () => {
                   <option value="NSE">NSE (National Stock Exchange)</option>
                   <option value="BSE">BSE (Bombay Stock Exchange)</option>
                 </select>
+              </div>
+              
+              <div className="mb-3">
+                <label htmlFor="bulkTags" className="form-label">Tags (Optional)</label>
+                <input
+                  id="bulkTags"
+                  type="text"
+                  className="form-control"
+                  placeholder="Enter tags separated by commas (e.g., tech, banking, blue-chip)"
+                  value={bulkTags}
+                  onChange={(e) => setBulkTags(e.target.value)}
+                />
+                <small className="form-text text-muted">
+                  Tags help organize and filter your stocks. They will be applied to all stocks in this batch.
+                </small>
               </div>
               
               <div className="mb-3">
@@ -314,7 +350,16 @@ const BulkStocksPage = () => {
                               {stock.exchange}
                             </span>
                           </h6>
-                          <p className="card-text small text-muted mb-0">{stock.name}</p>
+                          <p className="card-text small text-muted mb-1">{stock.name}</p>
+                          {stock.tags && stock.tags.length > 0 && (
+                            <div className="mb-0">
+                              {stock.tags.map((tag, index) => (
+                                <span key={index} className="badge bg-light text-dark me-1 mb-1" style={{ fontSize: '0.7em' }}>
+                                  🏷️ {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         {stock.status !== 'adding' && (
                           <button 

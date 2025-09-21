@@ -11,7 +11,8 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
   const [formData, setFormData] = useState<AddStockForm>({
     symbol: '',
     name: '',
-    exchange: 'NSE'
+    exchange: 'NSE',
+    tags: []
   })
   const [errors, setErrors] = useState<Partial<Record<keyof AddStockForm, string>>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -226,6 +227,29 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
                     ⚠️ BSE support is limited. Use NSE for better data availability.
                   </div>
                 )}
+              </div>
+
+              <div className="mb-3">
+                <label htmlFor="tags" className="form-label">Tags</label>
+                <input
+                  id="tags"
+                  type="text"
+                  className="form-control"
+                  value={formData.tags.join(', ')}
+                  onChange={(e) => {
+                    const tagsString = e.target.value
+                    const tagsArray = tagsString
+                      .split(',')
+                      .map(tag => tag.trim())
+                      .filter(tag => tag.length > 0)
+                    setFormData(prev => ({ ...prev, tags: tagsArray }))
+                  }}
+                  placeholder="e.g., technology, blue-chip, growth (comma separated)"
+                  disabled={isSubmitting}
+                />
+                <div className="form-text">
+                  Add tags to categorize and organize your stocks (optional)
+                </div>
               </div>
             </form>
           </div>

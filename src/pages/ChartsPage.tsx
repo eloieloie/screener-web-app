@@ -120,19 +120,6 @@ const ChartsPage = () => {
         {stocks.map((stock) => (
           <div key={stock.id} className="col-lg-6 col-xl-4">
             <div className="card h-100 shadow-sm">
-              <div className="card-header bg-white border-0">
-                <div className="d-flex justify-content-between align-items-center">
-                  <div>
-                    <h6 className="card-title mb-0">{stock.symbol}</h6>
-                    <small className="text-muted">{stock.name}</small>
-                  </div>
-                  {stock.exchange && (
-                    <span className={`badge ${stock.exchange === 'NSE' ? 'bg-primary' : 'bg-warning'}`}>
-                      {stock.exchange}
-                    </span>
-                  )}
-                </div>
-              </div>
               <div className="card-body">
                 <EnhancedChart
                   symbol={stock.symbol}
