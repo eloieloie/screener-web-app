@@ -1,0 +1,84 @@
+/* Responsive table styles */
+.table-responsive {
+  border-radius: 0.375rem;
+}
+
+.table th {
+  font-weight: 600;
+  border-bottom: 2px solid #dee2e6;
+  padding: 1rem 0.75rem;
+}
+
+.table td {
+  padding: 1rem 0.75rem;
+  vertical-align: middle;
+}
+
+.table-hover tbody tr:hover {
+  background-color: rgba(0, 123, 255, 0.05);
+}
+
+/* Sort indicators */
+.cursor-pointer {
+  cursor: pointer !important;
+}
+
+.user-select-none {
+  user-select: none;
+}
+
+.table th:hover {
+  background-color: rgba(0, 123, 255, 0.1);
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .table-responsive {
+    font-size: 0.875rem;
+  }
+  
+  .table th,
+  .table td {
+    padding: 0.75rem 0.5rem;
+  }
+}
+
+/* Enhanced color coding */
+.text-success {
+  color: #198754 !important;
+}
+
+.text-danger {
+  color: #dc3545 !important;
+}
+
+/* Badge styles */
+.badge {
+  font-size: 0.7em;
+}
+
+/* Chart row */
+.bg-light {
+  background-color: #f8f9fa !important;
+}
+
+/* Ensure proper alignment */
+.text-end {
+  text-align: right !important;
+}
+
+.text-center {
+  text-align: center !important;
+}
+
+/* Button spacing */
+.btn-sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+}
+
+/* Loading spinner */
+.spinner-border-sm {
+  width: 1rem;
+  height: 1rem;
+}

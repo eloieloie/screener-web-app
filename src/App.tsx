@@ -3,9 +3,10 @@ import Analytics from './components/Analytics'
 import AuthenticationStatus from './components/AuthenticationStatus'
 import StocksPage from './pages/StocksPage'
 import ChartsPage from './pages/ChartsPage'
+import BulkStocksPage from './pages/BulkStocksPage'
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<'dashboard' | 'stocks' | 'charts' | 'analytics'>('dashboard')
+  const [currentPage, setCurrentPage] = useState<'dashboard' | 'stocks' | 'bulk' | 'charts' | 'analytics'>('dashboard')
 
   return (
     <div className="min-vh-100 bg-light">
@@ -27,6 +28,12 @@ function App() {
               📊 My Stocks
             </button>
             <button 
+              className={`btn ${currentPage === 'bulk' ? 'btn-primary' : 'btn-outline-primary'} me-2`}
+              onClick={() => setCurrentPage('bulk')}
+            >
+              📦 Bulk Add
+            </button>
+            <button 
               className={`btn ${currentPage === 'charts' ? 'btn-primary' : 'btn-outline-primary'} me-2`}
               onClick={() => setCurrentPage('charts')}
             >
@@ -36,7 +43,7 @@ function App() {
               className={`btn ${currentPage === 'analytics' ? 'btn-primary' : 'btn-outline-primary'}`}
               onClick={() => setCurrentPage('analytics')}
             >
-              � Analytics
+              📊 Analytics
             </button>
           </div>
         </div>
@@ -106,6 +113,12 @@ function App() {
                         📊 View My Stocks
                       </button>
                       <button 
+                        className="btn btn-success"
+                        onClick={() => setCurrentPage('bulk')}
+                      >
+                        📦 Bulk Add Stocks
+                      </button>
+                      <button 
                         className="btn btn-outline-primary"
                         onClick={() => setCurrentPage('charts')}
                       >
@@ -115,7 +128,7 @@ function App() {
                         className="btn btn-outline-primary"
                         onClick={() => setCurrentPage('analytics')}
                       >
-                        � View Analytics
+                        📊 View Analytics
                       </button>
                     </div>
                   </div>
@@ -125,6 +138,8 @@ function App() {
           </>
         ) : currentPage === 'stocks' ? (
           <StocksPage />
+        ) : currentPage === 'bulk' ? (
+          <BulkStocksPage />
         ) : currentPage === 'charts' ? (
           <ChartsPage />
         ) : (

@@ -1,5 +1,17 @@
 /* App.css - Professional Stock Screener Design */
 
+/* Override Bootstrap container max-widths for full-width layout */
+.container,
+.container-fluid,
+.container-sm,
+.container-md,
+.container-lg,
+.container-xl,
+.container-xxl {
+  max-width: none !important;
+  width: 100% !important;
+}
+
 .app {
   min-height: 100vh;
   background: var(--bg-primary);
@@ -99,7 +111,6 @@
 .app-main {
   flex: 1;
   padding: var(--space-8) var(--space-6);
-  max-width: 1400px;
   margin: 0 auto;
   width: 100%;
 }
@@ -220,7 +231,6 @@
 .empty-state p {
   color: var(--color-gray-600);
   font-size: var(--font-size-lg);
-  max-width: 500px;
   margin: 0 auto;
   line-height: 1.6;
 }

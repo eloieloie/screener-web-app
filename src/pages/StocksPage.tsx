@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { Stock, AddStockForm } from '../types/Stock'
-import StockList from '../components/StockList'
+import StockTable from '../components/StockTable'
 import AddStockModal from '../components/AddStockModal'
 import { subscribeToStocks, addStock as addStockToFirebase, deleteStock } from '../services/stockService'
 
@@ -101,7 +101,7 @@ const StocksPage = () => {
           <p className="text-muted">Add your first stock to begin tracking your portfolio performance and make informed investment decisions.</p>
         </div>
       ) : (
-        <StockList 
+        <StockTable 
           stocks={stocks} 
           onRemoveStock={removeStock}
         />
