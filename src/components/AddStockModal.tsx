@@ -116,18 +116,37 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
   }
 
   return (
-    <div className="modal-backdrop show d-flex align-items-center justify-content-center" onClick={onClose}>
-      <div className="modal-dialog modal-lg" onClick={e => e.stopPropagation()}>
-        <div className="modal-content">
-          <div className="modal-header">
-            <h4 className="modal-title">Add New Stock</h4>
-            <button 
-              type="button" 
-              className="btn-close" 
-              onClick={onClose} 
-              disabled={isSubmitting}
-            ></button>
-          </div>
+    <>
+      {/* Bootstrap Modal Backdrop */}
+      <div 
+        className="modal-backdrop fade show"
+        onClick={onClose}
+      ></div>
+      
+      {/* Bootstrap Modal */}
+      <div 
+        className="modal fade show d-block" 
+        tabIndex={-1} 
+        role="dialog"
+        style={{ zIndex: 1050 }}
+        onClick={onClose}
+      >
+        <div 
+          className="modal-dialog modal-lg modal-dialog-centered" 
+          role="document" 
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="modal-content">
+            <div className="modal-header">
+              <h4 className="modal-title">Add New Stock</h4>
+              <button 
+                type="button" 
+                className="btn-close" 
+                onClick={onClose} 
+                disabled={isSubmitting}
+                aria-label="Close"
+              ></button>
+            </div>
           
           <div className="modal-body">
             <form onSubmit={handleSubmit}>
@@ -239,6 +258,7 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
         </div>
       </div>
     </div>
+    </>
   )
 }
 

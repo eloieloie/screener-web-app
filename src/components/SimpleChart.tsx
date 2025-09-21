@@ -70,7 +70,7 @@ function SimpleChart({ symbol, width = 300, height = 150, className = "" }: Simp
     const drawChart = async () => {
       const data = await fetchHistoricalData()
       
-      if (!isMounted) return // Don't draw if component unmounted
+      if (!isMounted || !canvas) return // Don't draw if component unmounted or canvas missing
       
       const padding = 20
       const chartWidth = width - padding * 2
@@ -82,22 +82,31 @@ function SimpleChart({ symbol, width = 300, height = 150, className = "" }: Simp
       canvas.height = height * devicePixelRatio
       canvas.style.width = width + 'px'
       canvas.style.height = height + 'px'
+      
+      // Reset transform and scale
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
       ctx.scale(devicePixelRatio, devicePixelRatio)
       
-      // Clear canvas
-      ctx.clearRect(0, 0, width, height)
+      // Clear canvas with white background
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, width, height)
+      
+      if (data.length === 0) {
+        // Show "No data" message
+        ctx.fillStyle = '#6b7280'
+        ctx.font = '14px system-ui, -apple-system, sans-serif'
+        ctx.textAlign = 'center'
+        ctx.fillText('No chart data available', width / 2, height / 2)
+        return
+      }
       
       // Find min/max for scaling
       const minPrice = Math.min(...data)
       const maxPrice = Math.max(...data)
       const priceRange = maxPrice - minPrice || 1 // Avoid division by zero
       
-      // Draw background
-      ctx.fillStyle = '#f8fafc'
-      ctx.fillRect(0, 0, width, height)
-      
       // Draw grid lines
-      ctx.strokeStyle = '#e2e8f0'
+      ctx.strokeStyle = '#f1f5f9'
       ctx.lineWidth = 1
       
       for (let i = 0; i <= 4; i++) {
@@ -111,10 +120,12 @@ function SimpleChart({ symbol, width = 300, height = 150, className = "" }: Simp
       // Draw price line
       ctx.strokeStyle = '#3b82f6'
       ctx.lineWidth = 2
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
       ctx.beginPath()
       
       data.forEach((price, index) => {
-        const x = padding + (index * chartWidth / (data.length - 1))
+        const x = padding + (index * chartWidth / Math.max(data.length - 1, 1))
         const y = padding + chartHeight - ((price - minPrice) / priceRange * chartHeight)
         
         if (index === 0) {
@@ -126,13 +137,16 @@ function SimpleChart({ symbol, width = 300, height = 150, className = "" }: Simp
       
       ctx.stroke()
       
-      // Fill area under the line
-      ctx.strokeStyle = 'rgba(59, 130, 246, 0.3)'
-      ctx.fillStyle = 'rgba(59, 130, 246, 0.1)'
+      // Fill area under the line with gradient
+      const gradient = ctx.createLinearGradient(0, padding, 0, padding + chartHeight)
+      gradient.addColorStop(0, 'rgba(59, 130, 246, 0.2)')
+      gradient.addColorStop(1, 'rgba(59, 130, 246, 0.05)')
+      
+      ctx.fillStyle = gradient
       ctx.beginPath()
       
       data.forEach((price, index) => {
-        const x = padding + (index * chartWidth / (data.length - 1))
+        const x = padding + (index * chartWidth / Math.max(data.length - 1, 1))
         const y = padding + chartHeight - ((price - minPrice) / priceRange * chartHeight)
         
         if (index === 0) {
@@ -151,39 +165,27 @@ function SimpleChart({ symbol, width = 300, height = 150, className = "" }: Simp
       ctx.fill()
       
       // Draw current price dot
-      const lastPrice = data[data.length - 1]
-      const lastX = width - padding
-      const lastY = padding + chartHeight - ((lastPrice - minPrice) / priceRange * chartHeight)
-      
-      ctx.fillStyle = '#3b82f6'
-      ctx.beginPath()
-      ctx.arc(lastX, lastY, 4, 0, Math.PI * 2)
-      ctx.fill()
-      
-      // Draw price label with background
-      const priceText = `₹${lastPrice.toFixed(2)}`
-      ctx.font = '11px system-ui, -apple-system, sans-serif'
-      ctx.textAlign = 'right'
-      const textMetrics = ctx.measureText(priceText)
-      const textWidth = textMetrics.width + 8
-      const textHeight = 16
-      
-      // Label background
-      ctx.fillStyle = '#3b82f6'
-      ctx.fillRect(lastX - textWidth - 8, lastY - textHeight/2 - 2, textWidth, textHeight)
-      
-      // Label text
-      ctx.fillStyle = 'white'
-      ctx.fillText(priceText, lastX - 12, lastY + 3)
-      
-      // Calculate and display change percentage
-      const firstPrice = data[0]
-      const changePercent = ((lastPrice - firstPrice) / firstPrice * 100)
-      const changeText = `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`
-      
-      // Store change for external display
-      canvas.dataset.change = changePercent.toFixed(2)
-      canvas.dataset.changePercent = changeText
+      if (data.length > 0) {
+        const lastPrice = data[data.length - 1]
+        const lastX = padding + chartWidth
+        const lastY = padding + chartHeight - ((lastPrice - minPrice) / priceRange * chartHeight)
+        
+        ctx.fillStyle = '#3b82f6'
+        ctx.beginPath()
+        ctx.arc(lastX, lastY, 4, 0, Math.PI * 2)
+        ctx.fill()
+        
+        // White border around dot
+        ctx.strokeStyle = '#ffffff'
+        ctx.lineWidth = 2
+        ctx.stroke()
+        
+        // Store change for external display
+        const firstPrice = data[0]
+        const changePercent = ((lastPrice - firstPrice) / firstPrice * 100)
+        canvas.dataset.change = changePercent.toFixed(2)
+        canvas.dataset.changePercent = `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`
+      }
     }
 
     drawChart()
@@ -201,20 +203,40 @@ function SimpleChart({ symbol, width = 300, height = 150, className = "" }: Simp
   return (
     <div className={`d-flex flex-column ${className}`}>
       <div className="d-flex justify-content-between align-items-center mb-2">
-        <span className="fw-bold small">{symbol}</span>
+        <span className="fw-bold small text-muted">{symbol} • 30D Chart</span>
         {isLoading ? (
-          <span className="text-muted small">Loading...</span>
+          <div className="d-flex align-items-center">
+            <div className="spinner-border spinner-border-sm me-1" role="status">
+              <span className="visually-hidden">Loading...</span>
+            </div>
+            <span className="text-muted small">Loading...</span>
+          </div>
         ) : (
           <span className={`badge ${change >= 0 ? 'bg-success' : 'bg-danger'}`}>
             {changePercent}
           </span>
         )}
       </div>
-      <canvas 
-        ref={canvasRef}
-        className="border rounded"
-        style={{ width: '100%', height: 'auto' }}
-      />
+      <div className="position-relative">
+        <canvas 
+          ref={canvasRef}
+          className="border rounded bg-white w-100"
+          style={{ 
+            width: '100%', 
+            height: 'auto',
+            maxWidth: `${width}px`,
+            aspectRatio: `${width}/${height}`
+          }}
+        />
+        {!kiteAPI.isReady() && (
+          <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-light bg-opacity-75 rounded">
+            <div className="text-center">
+              <div className="text-muted small">📊 Sample Chart Data</div>
+              <div className="text-muted small">Login for live historical data</div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

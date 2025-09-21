@@ -1,62 +1,10 @@
-import { useState, useEffect } from 'react'
-import type { Stock, AddStockForm } from './types/Stock'
-import StockList from './components/StockList'
-import AddStockModal from './components/AddStockModal'
+import { useState } from 'react'
 import Analytics from './components/Analytics'
 import AuthenticationStatus from './components/AuthenticationStatus'
-import { subscribeToStocks, addStock as addStockToFirebase, deleteStock } from './services/stockService'
+import StocksPage from './pages/StocksPage'
 
 function App() {
-  const [stocks, setStocks] = useState<Stock[]>([])
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [currentPage, setCurrentPage] = useState<'dashboard' | 'analytics'>('dashboard')
-
-  // Subscribe to real-time stock updates with error handling
-  useEffect(() => {
-    let unsubscribe: (() => void) | null = null
-    
-    try {
-      unsubscribe = subscribeToStocks((stockList) => {
-        setStocks(stockList)
-        setLoading(false)
-        setError(null)
-      })
-    } catch (err) {
-      console.error('Error setting up stock subscription:', err)
-      setError('Failed to connect to the database. Please check your internet connection.')
-      setLoading(false)
-    }
-
-    // Cleanup subscription on unmount
-    return () => {
-      if (unsubscribe) {
-        unsubscribe()
-      }
-    }
-  }, [])
-
-  const addStock = async (formData: AddStockForm) => {
-    try {
-      setError(null)
-      await addStockToFirebase(formData)
-      setIsModalOpen(false)
-    } catch (err) {
-      setError('Failed to add stock. Please try again.')
-      console.error('Error adding stock:', err)
-    }
-  }
-
-  const removeStock = async (id: string) => {
-    try {
-      setError(null)
-      await deleteStock(id)
-    } catch (err) {
-      setError('Failed to remove stock. Please try again.')
-      console.error('Error removing stock:', err)
-    }
-  }
+  const [currentPage, setCurrentPage] = useState<'dashboard' | 'stocks' | 'analytics'>('dashboard')
 
   return (
     <div className="min-vh-100 bg-light">
@@ -69,7 +17,13 @@ function App() {
               className={`btn ${currentPage === 'dashboard' ? 'btn-primary' : 'btn-outline-primary'} me-2`}
               onClick={() => setCurrentPage('dashboard')}
             >
-              📊 Dashboard
+              🏠 Dashboard
+            </button>
+            <button 
+              className={`btn ${currentPage === 'stocks' ? 'btn-primary' : 'btn-outline-primary'} me-2`}
+              onClick={() => setCurrentPage('stocks')}
+            >
+              📊 My Stocks
             </button>
             <button 
               className={`btn ${currentPage === 'analytics' ? 'btn-primary' : 'btn-outline-primary'}`}
@@ -82,67 +36,84 @@ function App() {
       </nav>
 
       <div className="container mt-4">
-        {/* Authentication Status - shown on all pages */}
-        <AuthenticationStatus />
-        
         {currentPage === 'dashboard' ? (
           <>
-            <div className="d-flex justify-content-between align-items-center mb-4">
-              <button 
-                className="btn btn-success"
-                onClick={() => setIsModalOpen(true)}
-              >
-                <span className="me-1">+</span>
-                Add Stock
-              </button>
-              <div className="badge bg-secondary fs-6">
-                {stocks.length} stock{stocks.length !== 1 ? 's' : ''} tracked
+            {/* Welcome Section */}
+            <div className="row mb-4">
+              <div className="col-12">
+                <div className="card border-0 shadow-sm">
+                  <div className="card-body text-center py-5">
+                    <div className="display-1 mb-3">📊</div>
+                    <h1 className="h2 mb-3">Welcome to Stock Screener</h1>
+                    <p className="lead text-muted mb-4">
+                      Track your portfolio, analyze market trends, and make informed investment decisions.
+                    </p>
+                    <div className="row g-3 mt-4">
+                      <div className="col-md-4">
+                        <div className="card h-100 border-0 bg-light">
+                          <div className="card-body text-center">
+                            <div className="h2 mb-2">📈</div>
+                            <h5>Real-time Data</h5>
+                            <p className="small text-muted">Get live stock prices and market updates</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="col-md-4">
+                        <div className="card h-100 border-0 bg-light">
+                          <div className="card-body text-center">
+                            <div className="h2 mb-2">💼</div>
+                            <h5>Portfolio Tracking</h5>
+                            <p className="small text-muted">Monitor your investments and performance</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="col-md-4">
+                        <div className="card h-100 border-0 bg-light">
+                          <div className="card-body text-center">
+                            <div className="h2 mb-2">📊</div>
+                            <h5>Analytics</h5>
+                            <p className="small text-muted">Advanced charts and market analysis</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {error && (
-              <div className="alert alert-danger" role="alert">
-                {error}
-              </div>
-            )}
+            {/* Authentication Status */}
+            <AuthenticationStatus />
 
-            {stocks.length > 0 && stocks.every(stock => stock.price === 0) && (
-              <div className="alert alert-info" role="alert">
-                <strong>💡 Live Data Unavailable</strong><br/>
-                Your stocks are saved, but live prices require authentication with Zerodha Kite. 
-                Please log in using the authentication section above to see real-time market data.
-              </div>
-            )}
-
-            {loading ? (
-              <div className="text-center py-5">
-                <div className="spinner-border text-primary" role="status">
-                  <span className="visually-hidden">Loading...</span>
+            {/* Quick Actions */}
+            <div className="row">
+              <div className="col-12">
+                <div className="card border-0 shadow-sm">
+                  <div className="card-body">
+                    <h5 className="card-title">🚀 Quick Actions</h5>
+                    <div className="d-flex gap-2 flex-wrap">
+                      <button 
+                        className="btn btn-primary"
+                        onClick={() => setCurrentPage('stocks')}
+                      >
+                        📊 View My Stocks
+                      </button>
+                      <button 
+                        className="btn btn-outline-primary"
+                        onClick={() => setCurrentPage('analytics')}
+                      >
+                        📈 View Analytics
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <p className="mt-3">Loading your stocks...</p>
               </div>
-            ) : stocks.length === 0 ? (
-              <div className="text-center py-5">
-                <div className="display-1">📈</div>
-                <h2 className="h3 mt-3">Start Your Investment Journey</h2>
-                <p className="text-muted">Add your first stock to begin tracking your portfolio performance and make informed investment decisions.</p>
-              </div>
-            ) : (
-              <StockList 
-                stocks={stocks} 
-                onRemoveStock={removeStock}
-              />
-            )}
+            </div>
           </>
+        ) : currentPage === 'stocks' ? (
+          <StocksPage />
         ) : (
           <Analytics />
-        )}
-
-        {isModalOpen && (
-          <AddStockModal 
-            onAddStock={addStock}
-            onClose={() => setIsModalOpen(false)}
-          />
         )}
       </div>
     </div>

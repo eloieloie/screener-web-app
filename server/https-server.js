@@ -198,12 +198,17 @@ app.post('/auth/logout', (req, res) => {
 
 // Middleware to check authentication
 const requireAuth = (req, res, next) => {
+  console.log(`🔐 [AUTH] ${req.method} ${req.originalUrl} - Session: ${!!req.session} - KiteSession: ${!!req.session?.kite_session}`);
+  
   if (!req.session || !req.session.kite_session) {
+    console.log(`❌ [AUTH] Authentication required for ${req.originalUrl}`);
     return res.status(401).json({
       success: false,
       message: 'Authentication required'
     });
   }
+  
+  console.log(`✅ [AUTH] User authenticated: ${req.session.kite_session.user_name}`);
   
   // Set access token for KiteConnect
   if (kiteService) {
@@ -264,6 +269,182 @@ app.get('/api/stocks/quote/:symbol', requireAuth, async (req, res) => {
       success: false,
       message: 'Failed to get stock quote',
       error: error.message
+    });
+  }
+});
+
+// Cache for instruments list
+let instrumentsCache = null;
+let instrumentsCacheTime = null;
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+
+// Helper function to get instrument token from symbol
+const getInstrumentToken = async (symbol) => {
+  console.log(`🔍 [INSTRUMENT] Looking up token for: ${symbol}`);
+  try {
+    // Check if cache is valid
+    if (!instrumentsCache || !instrumentsCacheTime || Date.now() - instrumentsCacheTime > CACHE_DURATION) {
+      console.log('🔍 [INSTRUMENT] Fetching fresh instruments list...');
+      console.log('🔍 [INSTRUMENT] KiteService status:', !!kiteService);
+      console.log('🔍 [INSTRUMENT] KiteService session active:', kiteService?.kite?.session_expiry_hook || 'No session info');
+      
+      try {
+        // Try different approaches for getting instruments
+        console.log('🔍 [INSTRUMENT] Attempting getInstruments() call...');
+        instrumentsCache = await kiteService.getInstruments(['NSE']);
+        instrumentsCacheTime = Date.now();
+        console.log(`✅ [INSTRUMENT] Successfully cached ${instrumentsCache.length} instruments`);
+      } catch (instrumentError) {
+        console.error(`❌ [INSTRUMENT] getInstruments() failed:`, instrumentError.message);
+        console.error(`❌ [INSTRUMENT] Error details:`, instrumentError);
+        
+        // Fallback: try hardcoded instrument tokens for common stocks
+        console.log('🔍 [INSTRUMENT] Using fallback hardcoded tokens...');
+        const fallbackTokens = {
+          'INFY': '408065',
+          'TCS': '2953217', 
+          'RELIANCE': '738561',
+          'HDFCBANK': '341249',
+          'ICICIBANK': '1270529',
+          'SBIN': '779521',
+          'ITC': '424961',
+          'HINDUNILVR': '356865',
+          'LT': '2939649',
+          'ASIANPAINT': '60417'
+        };
+        
+        const searchSymbol = symbol.replace('.NS', '').replace('.BO', '');
+        const token = fallbackTokens[searchSymbol];
+        if (token) {
+          console.log(`✅ [INSTRUMENT] Using fallback token: ${token} for ${searchSymbol}`);
+          return token;
+        }
+        
+        return null;
+      }
+    }
+
+    // Convert symbol format for searching
+    const searchSymbol = symbol.replace('.NS', '').replace('.BO', '');
+    console.log(`🔍 [INSTRUMENT] Searching for: ${searchSymbol}`);
+    
+    // Find instrument by trading symbol
+    const instrument = instrumentsCache.find(inst => 
+      inst.tradingsymbol === searchSymbol && 
+      (inst.exchange === 'NSE' || inst.exchange === 'BSE')
+    );
+
+    if (instrument) {
+      console.log(`✅ [INSTRUMENT] Found token: ${instrument.instrument_token} for ${searchSymbol}`);
+      return instrument.instrument_token;
+    }
+    
+    console.log(`❌ [INSTRUMENT] No token found for: ${symbol}`);
+    return null;
+  } catch (error) {
+    console.error(`❌ [INSTRUMENT] Unexpected error:`, error.message);
+    console.error(`❌ [INSTRUMENT] Error stack:`, error.stack);
+    return null;
+  }
+};
+
+// Historical data endpoint
+app.get('/api/stocks/historical/:symbol', requireAuth, async (req, res) => {
+  console.log(`\n📊 [HISTORICAL] ===== REQUEST START =====`);
+  console.log(`📊 [HISTORICAL] Symbol: ${req.params.symbol}`);
+  console.log(`📊 [HISTORICAL] Query:`, req.query);
+  console.log(`📊 [HISTORICAL] User:`, req.session.user?.user_name);
+  
+  try {
+    const { symbol } = req.params;
+    const { from, to, interval = 'day' } = req.query;
+
+    if (!from || !to) {
+      console.log(`❌ [HISTORICAL] Missing required parameters`);
+      return res.status(400).json({
+        success: false,
+        message: 'from and to date parameters are required (YYYY-MM-DD format)'
+      });
+    }
+
+    console.log(`📊 [HISTORICAL] Getting instrument token...`);
+    const instrumentToken = await getInstrumentToken(symbol);
+    
+    if (!instrumentToken) {
+      console.log(`❌ [HISTORICAL] No instrument token found - returning error`);
+      return res.status(404).json({
+        success: false,
+        message: `Instrument token not found for symbol: ${symbol}. This may be due to KiteConnect API permissions or the symbol not being available.`
+      });
+    }
+
+    console.log(`📊 [HISTORICAL] Using instrument token: ${instrumentToken}`);
+    console.log(`📊 [HISTORICAL] Calling KiteConnect getHistoricalData...`);
+    console.log(`📊 [HISTORICAL] Parameters: token=${instrumentToken}, interval=${interval}, from=${from}, to=${to}`);
+    
+    const historicalData = await kiteService.getHistoricalData(
+      instrumentToken,
+      interval,
+      from,
+      to
+    );
+
+    console.log(`📊 [HISTORICAL] Raw response type:`, typeof historicalData);
+    console.log(`📊 [HISTORICAL] Raw response:`, historicalData);
+    console.log(`📊 [HISTORICAL] Response: ${historicalData?.length || 0} records`);
+
+    if (historicalData && historicalData.length > 0) {
+      console.log(`✅ [HISTORICAL] Success - returning ${historicalData.length} records`);
+      console.log(`📊 [HISTORICAL] ===== REQUEST END =====\n`);
+      
+      res.json({
+        success: true,
+        data: historicalData.map(candle => ({
+          date: candle.date,
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+          volume: candle.volume
+        })),
+        metadata: {
+          symbol: symbol,
+          interval: interval,
+          from: from,
+          to: to,
+          count: historicalData.length
+        },
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      console.log(`⚠️ [HISTORICAL] No data returned`);
+      console.log(`📊 [HISTORICAL] ===== REQUEST END =====\n`);
+      
+      res.status(404).json({
+        success: false,
+        message: `No historical data found for symbol: ${symbol}`,
+        metadata: {
+          symbol: symbol,
+          interval: interval,
+          from: from,
+          to: to
+        }
+      });
+    }
+  } catch (error) {
+    console.error(`❌ [HISTORICAL] Error:`, error.message);
+    console.log(`📊 [HISTORICAL] ===== REQUEST END WITH ERROR =====\n`);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get historical data',
+      error: error.message,
+      details: {
+        symbol: req.params.symbol,
+        from: req.query.from,
+        to: req.query.to,
+        interval: req.query.interval
+      }
     });
   }
 });
