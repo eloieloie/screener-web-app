@@ -7,7 +7,10 @@ import {
   onSnapshot,
   query,
   orderBy,
-  Timestamp 
+  Timestamp,
+  where,
+  updateDoc,
+  arrayUnion 
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import type { Stock, AddStockForm } from '../types/Stock';
@@ -18,10 +21,129 @@ const STOCKS_COLLECTION = 'stocks';
 // Create KiteConnect API instance
 const kiteAPI = KiteConnectAPI.getInstance();
 
+// Helper function to find existing stock by symbol and exchange
+const findExistingStock = async (symbol: string, exchange: string): Promise<{ id: string; tags: string[] } | null> => {
+  try {
+    const q = query(
+      collection(db, STOCKS_COLLECTION),
+      where('symbol', '==', symbol),
+      where('exchange', '==', exchange)
+    );
+    const querySnapshot = await getDocs(q);
+    
+    if (querySnapshot.empty) {
+      return null;
+    }
+    
+    // Return the first match (there should only be one)
+    const doc = querySnapshot.docs[0];
+    const data = doc.data();
+    return {
+      id: doc.id,
+      tags: data.tags || []
+    };
+  } catch (error) {
+    console.error('Error finding existing stock:', error);
+    return null;
+  }
+};
+
+// Helper function to update tags for existing stock
+const updateStockTags = async (stockId: string, newTags: string[]): Promise<void> => {
+  try {
+    const stockRef = doc(db, STOCKS_COLLECTION, stockId);
+    
+    // Use arrayUnion to add new tags without duplicates
+    await updateDoc(stockRef, {
+      tags: arrayUnion(...newTags),
+      updatedAt: Timestamp.now()
+    });
+  } catch (error) {
+    console.error('Error updating stock tags:', error);
+    throw new Error('Failed to update stock tags');
+  }
+};
+
 // Add a new stock to Firestore - only metadata, no price data
+// If stock already exists, only add new tags that aren't already present
 export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
   try {
-    console.log(`Adding stock: ${stockData.symbol} on ${stockData.exchange}`);
+    console.log(`Adding/updating stock: ${stockData.symbol} on ${stockData.exchange}`);
+    
+    // Check if stock already exists
+    const existingStock = await findExistingStock(stockData.symbol, stockData.exchange);
+    
+    if (existingStock) {
+      console.log(`Stock ${stockData.symbol} already exists. Checking tags...`);
+      
+      // Filter out tags that already exist
+      const newTags = (stockData.tags || []).filter(tag => 
+        !existingStock.tags.includes(tag)
+      );
+      
+      if (newTags.length === 0) {
+        console.log(`All tags already exist for ${stockData.symbol}. No updates needed.`);
+        // Return existing stock data with live prices if available
+        if (kiteAPI.isReady()) {
+          const stockDetails = await kiteAPI.getStockQuote(stockData.symbol);
+          if (stockDetails) {
+            return {
+              ...stockDetails,
+              id: existingStock.id,
+              tags: existingStock.tags
+            };
+          }
+        }
+        
+        // Return basic structure if API not available
+        return {
+          id: existingStock.id,
+          symbol: stockData.symbol,
+          name: stockData.name,
+          price: 0,
+          change: 0,
+          changePercent: 0,
+          exchange: stockData.exchange,
+          currency: 'INR',
+          marketCap: 'N/A',
+          tags: existingStock.tags
+        };
+      }
+      
+      // Add only new tags
+      console.log(`Adding new tags [${newTags.join(', ')}] to existing stock ${stockData.symbol}`);
+      await updateStockTags(existingStock.id, newTags);
+      
+      // Return updated stock data with live prices if available
+      const updatedTags = [...existingStock.tags, ...newTags];
+      if (kiteAPI.isReady()) {
+        const stockDetails = await kiteAPI.getStockQuote(stockData.symbol);
+        if (stockDetails) {
+          return {
+            ...stockDetails,
+            id: existingStock.id,
+            tags: updatedTags
+          };
+        }
+      }
+      
+      // Return basic structure if API not available
+      return {
+        id: existingStock.id,
+        symbol: stockData.symbol,
+        name: stockData.name,
+        price: 0,
+        change: 0,
+        changePercent: 0,
+        exchange: stockData.exchange,
+        currency: 'INR',
+        marketCap: 'N/A',
+        tags: updatedTags
+      };
+    }
+    
+    // Stock doesn't exist, create new one
+    console.log(`Creating new stock entry for ${stockData.symbol}`);
     
     // Check if API is authenticated before trying to verify stock
     if (!kiteAPI.isReady()) {
@@ -80,7 +202,7 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
       tags: stockData.tags || []
     };
   } catch (error) {
-    console.error('Error adding stock:', error);
+    console.error('Error adding/updating stock:', error);
     throw new Error('Failed to add stock. Please check the symbol and try again.');
   }
 };

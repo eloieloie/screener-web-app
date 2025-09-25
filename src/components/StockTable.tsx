@@ -1,15 +1,15 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import type { Stock } from '../types/Stock'
-import { formatVolume } from '../utils/formatters'
 import SimpleChart from './SimpleChart'
 import KiteConnectAPI from '../services/KiteConnectAPI'
 
 interface StockTableProps {
   stocks: Stock[]
   onRemoveStock: (id: string) => void
+  onNavigateToChartsWithTag: (tag: string) => void
 }
 
-const StockTable = ({ stocks, onRemoveStock }: StockTableProps) => {
+const StockTable = ({ stocks, onRemoveStock, onNavigateToChartsWithTag }: StockTableProps) => {
   const [liveStocks, setLiveStocks] = useState<Stock[]>(stocks)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [expandedCharts, setExpandedCharts] = useState<Set<string>>(new Set())
@@ -38,7 +38,7 @@ const StockTable = ({ stocks, onRemoveStock }: StockTableProps) => {
         stocks.map(async (stock) => {
           try {
             const freshData = await kiteAPI.getStockQuote(stock.symbol)
-            return freshData ? { ...freshData, id: stock.id } : stock
+            return freshData ? { ...stock, ...freshData } : stock
           } catch (error) {
             console.error(`Error fetching data for ${stock.symbol}:`, error)
             return stock
@@ -129,15 +129,6 @@ const StockTable = ({ stocks, onRemoveStock }: StockTableProps) => {
   }
 
   const formatPrice = (price: number) => price > 0 ? `₹${price.toFixed(2)}` : '-'
-  const formatChange = (change: number) => {
-    if (change === 0) return '-'
-    return change >= 0 ? `+₹${change.toFixed(2)}` : `-₹${Math.abs(change).toFixed(2)}`
-  }
-  const formatChangePercent = (percent: number | string) => {
-    const numPercent = typeof percent === 'string' ? parseFloat(percent) : percent
-    if (isNaN(numPercent) || numPercent === 0) return '-'
-    return `${numPercent >= 0 ? '+' : ''}${numPercent.toFixed(2)}%`
-  }
   
   const formatLastUpdated = (date: Date) => {
     const now = new Date()
@@ -201,6 +192,9 @@ const StockTable = ({ stocks, onRemoveStock }: StockTableProps) => {
                 >
                   Stock {getSortIcon('symbol')}
                 </th>
+                <th className="border-0">
+                  Tags
+                </th>
                 <th 
                   className="border-0 cursor-pointer user-select-none text-end"
                   onClick={() => handleSort('price')}
@@ -208,35 +202,14 @@ const StockTable = ({ stocks, onRemoveStock }: StockTableProps) => {
                 >
                   Price {getSortIcon('price')}
                 </th>
-                <th 
-                  className="border-0 cursor-pointer user-select-none text-end"
-                  onClick={() => handleSort('change')}
-                  style={{ cursor: 'pointer' }}
-                >
-                  Change {getSortIcon('change')}
-                </th>
-                <th 
-                  className="border-0 cursor-pointer user-select-none text-end"
-                  onClick={() => handleSort('changePercent')}
-                  style={{ cursor: 'pointer' }}
-                >
-                  Change % {getSortIcon('changePercent')}
-                </th>
-                <th 
-                  className="border-0 cursor-pointer user-select-none text-end"
-                  onClick={() => handleSort('volume')}
-                  style={{ cursor: 'pointer' }}
-                >
-                  Volume {getSortIcon('volume')}
-                </th>
                 <th className="border-0 text-center">Chart</th>
                 <th className="border-0 text-center">Actions</th>
               </tr>
             </thead>
             <tbody>
               {sortedStocks.map((stock) => (
-                <>
-                  <tr key={stock.id} className="align-middle">
+                <React.Fragment key={stock.id}>
+                  <tr className="align-middle">
                     <td className="border-0">
                       <div>
                         <div className="d-flex align-items-center">
@@ -250,38 +223,39 @@ const StockTable = ({ stocks, onRemoveStock }: StockTableProps) => {
                         <small className="text-muted">{stock.name}</small>
                       </div>
                     </td>
+                    <td className="border-0">
+                      {stock.tags && stock.tags.length > 0 ? (
+                        <div className="d-flex flex-wrap gap-1">
+                          {stock.tags.map((tag, index) => (
+                            <button
+                              key={index}
+                              className="badge bg-light text-dark border-0"
+                              style={{ 
+                                fontSize: '0.65em',
+                                cursor: 'pointer',
+                                transition: 'background-color 0.2s'
+                              }}
+                              onClick={() => onNavigateToChartsWithTag(tag)}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#e9ecef'
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = '#f8f9fa'
+                              }}
+                              title={`View charts for stocks tagged with "${tag}"`}
+                            >
+                              🏷️ {tag}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-muted small">No tags</span>
+                      )}
+                    </td>
                     <td className="border-0 text-end">
                       <div className={`fw-bold ${!kiteAPI.isReady() && stock.price === 0 ? 'text-muted' : ''}`}>
                         {stock.price === 0 && !kiteAPI.isReady() ? 'Login Required' : formatPrice(stock.price)}
                       </div>
-                      {stock.previousClose && kiteAPI.isReady() && stock.previousClose > 0 && (
-                        <small className="text-muted d-block">Prev: ₹{stock.previousClose.toFixed(2)}</small>
-                      )}
-                    </td>
-                    <td className="border-0 text-end">
-                      {kiteAPI.isReady() && stock.price > 0 && stock.change !== 0 ? (
-                        <span className={`fw-bold ${stock.change >= 0 ? 'text-success' : 'text-danger'}`}>
-                          {formatChange(stock.change)}
-                        </span>
-                      ) : (
-                        <span className="text-muted">-</span>
-                      )}
-                    </td>
-                    <td className="border-0 text-end">
-                      {kiteAPI.isReady() && stock.price > 0 && stock.changePercent !== 0 ? (
-                        <span className={`fw-bold ${stock.changePercent >= 0 ? 'text-success' : 'text-danger'}`}>
-                          {formatChangePercent(stock.changePercent)}
-                        </span>
-                      ) : (
-                        <span className="text-muted">-</span>
-                      )}
-                    </td>
-                    <td className="border-0 text-end">
-                      {stock.volume && stock.volume > 0 ? (
-                        <span className="fw-bold">{formatVolume(stock.volume)}</span>
-                      ) : (
-                        <span className="text-muted">-</span>
-                      )}
                     </td>
                     <td className="border-0 text-center">
                       <button 
@@ -303,7 +277,7 @@ const StockTable = ({ stocks, onRemoveStock }: StockTableProps) => {
                   </tr>
                   {expandedCharts.has(stock.id) && (
                     <tr>
-                      <td colSpan={7} className="border-0 bg-light p-3">
+                      <td colSpan={5} className="border-0 bg-light p-3">
                         <div className="d-flex justify-content-center">
                           <SimpleChart 
                             symbol={stock.symbol} 
@@ -338,7 +312,7 @@ const StockTable = ({ stocks, onRemoveStock }: StockTableProps) => {
                       </td>
                     </tr>
                   )}
-                </>
+                </React.Fragment>
               ))}
             </tbody>
           </table>

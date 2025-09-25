@@ -4,7 +4,11 @@ import StockTable from '../components/StockTable'
 import AddStockModal from '../components/AddStockModal'
 import { subscribeToStocks, addStock as addStockToFirebase, deleteStock } from '../services/stockService'
 
-const StocksPage = () => {
+interface StocksPageProps {
+  onNavigateToChartsWithTag: (tag: string) => void
+}
+
+const StocksPage = ({ onNavigateToChartsWithTag }: StocksPageProps) => {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -104,6 +108,7 @@ const StocksPage = () => {
         <StockTable 
           stocks={stocks} 
           onRemoveStock={removeStock}
+          onNavigateToChartsWithTag={onNavigateToChartsWithTag}
         />
       )}
 

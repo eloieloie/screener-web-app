@@ -7,9 +7,58 @@ interface EnhancedChartProps {
   height?: number
   className?: string
   duration: '1month' | '6months' | '1year' | '3years' | '5years'
+  onError?: (symbol: string, hasError: boolean, errorMessage?: string) => void
+  onRefreshReady?: (symbol: string, refreshFn: () => void) => void
 }
 
 const kiteAPI = KiteConnectAPI.getInstance()
+
+const getChartColors = (changePercent: number) => {
+    // Change percent is negative for downfall, so we use absolute value
+    const absChange = Math.abs(changePercent)
+    
+    if (changePercent >= 0) {
+      // Positive change - green
+      return {
+        lineColor: '#22c55e',
+        fillColorStart: 'rgba(34, 197, 94, 0.2)',
+        fillColorEnd: 'rgba(34, 197, 94, 0.05)',
+        dotColor: '#22c55e'
+      }
+    } else if (absChange <= 25) {
+      // 0-25% downfall - light orange
+      return {
+        lineColor: '#f59e0b',
+        fillColorStart: 'rgba(245, 158, 11, 0.2)',
+        fillColorEnd: 'rgba(245, 158, 11, 0.05)',
+        dotColor: '#f59e0b'
+      }
+    } else if (absChange <= 50) {
+      // 25-50% downfall - orange
+      return {
+        lineColor: '#ea580c',
+        fillColorStart: 'rgba(234, 88, 12, 0.2)',
+        fillColorEnd: 'rgba(234, 88, 12, 0.05)',
+        dotColor: '#ea580c'
+      }
+    } else if (absChange <= 75) {
+      // 50-75% downfall - red-orange
+      return {
+        lineColor: '#dc2626',
+        fillColorStart: 'rgba(220, 38, 38, 0.2)',
+        fillColorEnd: 'rgba(220, 38, 38, 0.05)',
+        dotColor: '#dc2626'
+      }
+    } else {
+      // 75-100% downfall - deep red
+      return {
+        lineColor: '#991b1b',
+        fillColorStart: 'rgba(153, 27, 27, 0.2)',
+        fillColorEnd: 'rgba(153, 27, 27, 0.05)',
+        dotColor: '#991b1b'
+      }
+    }
+  }
 
 const DURATION_CONFIG = {
   '1month': { days: 30, label: '1M', interval: 'day' },
@@ -19,7 +68,7 @@ const DURATION_CONFIG = {
   '5years': { days: 1825, label: '5Y', interval: 'day' }
 } as const
 
-function EnhancedChart({ symbol, width = 400, height = 250, className = "", duration }: EnhancedChartProps) {
+function EnhancedChart({ symbol, width = 400, height = 250, className = "", duration, onError, onRefreshReady }: EnhancedChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -60,7 +109,7 @@ function EnhancedChart({ symbol, width = 400, height = 250, className = "", dura
         const toDate = new Date()
         const fromDate = new Date(toDate.getTime() - config.days * 24 * 60 * 60 * 1000)
         
-        console.log(`Fetching fresh historical data for ${symbol} (${duration})...`)
+        console.log(`Fetching historical data for ${symbol} (${duration})...`)
         const historicalData = await kiteAPI.getHistoricalData(symbol, fromDate, toDate, 'day')
         
         if (historicalData && historicalData.length > 0) {
@@ -73,6 +122,11 @@ function EnhancedChart({ symbol, width = 400, height = 250, className = "", dura
       } catch (error) {
         console.error(`Failed to fetch historical data for ${symbol}:`, error)
         setError('Failed to load fresh data')
+        
+        // Notify parent about specific error
+        if (onError) {
+          onError(symbol, true, 'Failed to load fresh data')
+        }
         return generateSampleData()
       }
     }
@@ -153,14 +207,22 @@ function EnhancedChart({ symbol, width = 400, height = 250, className = "", dura
       ctx.fillText(label, x, height - 5)
     })
     
-    // Draw price line
-    ctx.strokeStyle = '#3b82f6'
+    // Calculate performance
+    const lastPrice = data[data.length - 1]
+    const periodHigh = Math.max(...data)
+    const changeFromHighPercent = ((lastPrice - periodHigh) / periodHigh * 100)
+    
+    // Get colors based on performance
+    const colors = getChartColors(changeFromHighPercent)
+    
+    // Draw price line with dynamic color
+    ctx.strokeStyle = colors.lineColor
     ctx.lineWidth = 2
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
     ctx.beginPath()
     
-    data.forEach((price, index) => {
+    data.forEach((price: number, index: number) => {
       const x = padding + (index * chartWidth / Math.max(data.length - 1, 1))
       const y = padding + chartHeight - ((price - minPrice) / priceRange * chartHeight)
       
@@ -173,15 +235,15 @@ function EnhancedChart({ symbol, width = 400, height = 250, className = "", dura
     
     ctx.stroke()
     
-    // Fill area under the line
+    // Fill area under the line with dynamic gradient
     const gradient = ctx.createLinearGradient(0, padding, 0, padding + chartHeight)
-    gradient.addColorStop(0, 'rgba(59, 130, 246, 0.2)')
-    gradient.addColorStop(1, 'rgba(59, 130, 246, 0.05)')
+    gradient.addColorStop(0, colors.fillColorStart)
+    gradient.addColorStop(1, colors.fillColorEnd)
     
     ctx.fillStyle = gradient
     ctx.beginPath()
     
-    data.forEach((price, index) => {
+    data.forEach((price: number, index: number) => {
       const x = padding + (index * chartWidth / Math.max(data.length - 1, 1))
       const y = padding + chartHeight - ((price - minPrice) / priceRange * chartHeight)
       
@@ -199,13 +261,12 @@ function EnhancedChart({ symbol, width = 400, height = 250, className = "", dura
     ctx.closePath()
     ctx.fill()
     
-    // Draw current price dot
+    // Draw current price dot with dynamic color
     if (data.length > 0) {
-      const lastPrice = data[data.length - 1]
       const lastX = padding + chartWidth
       const lastY = padding + chartHeight - ((lastPrice - minPrice) / priceRange * chartHeight)
       
-      ctx.fillStyle = '#3b82f6'
+      ctx.fillStyle = colors.dotColor
       ctx.beginPath()
       ctx.arc(lastX, lastY, 4, 0, Math.PI * 2)
       ctx.fill()
@@ -214,17 +275,20 @@ function EnhancedChart({ symbol, width = 400, height = 250, className = "", dura
       ctx.lineWidth = 2
       ctx.stroke()
       
-      // Calculate performance
-      const periodHigh = Math.max(...data)
-      const changeFromHighPercent = ((lastPrice - periodHigh) / periodHigh * 100)
-      
       canvas.dataset.change = changeFromHighPercent.toFixed(2)
       canvas.dataset.changePercent = `${changeFromHighPercent >= 0 ? '+' : ''}${changeFromHighPercent.toFixed(2)}%`
       canvas.dataset.currentPrice = lastPrice.toFixed(2)
       canvas.dataset.periodHigh = periodHigh.toFixed(2)
       canvas.dataset.changeFromHighPercent = `${changeFromHighPercent.toFixed(2)}%`
     }
-  }, [symbol, width, height, duration])
+  }, [symbol, width, height, duration, onError])
+
+  // Register refresh function with parent (separate effect)
+  useEffect(() => {
+    if (onRefreshReady) {
+      onRefreshReady(symbol, refreshHistoricalData)
+    }
+  }, [symbol, onRefreshReady, refreshHistoricalData])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -239,11 +303,22 @@ function EnhancedChart({ symbol, width = 400, height = 250, className = "", dura
       setIsLoading(true)
       setError(null)
       
+      // Clear any previous error state with parent
+      if (onError) {
+        onError(symbol, false)
+      }
+      
       try {
         await refreshHistoricalData()
       } catch (error) {
         console.error('Failed to draw chart:', error)
-        setError('Failed to load chart')
+        const errorMessage = 'Failed to load chart'
+        setError(errorMessage)
+        
+        // Notify parent about error
+        if (onError) {
+          onError(symbol, true, errorMessage)
+        }
       } finally {
         if (isMounted) {
           setIsLoading(false)
@@ -251,23 +326,36 @@ function EnhancedChart({ symbol, width = 400, height = 250, className = "", dura
       }
     }
 
+    // Only draw chart on initial mount or when symbol/duration changes
     drawChart()
     
     return () => {
       isMounted = false
     }
-  }, [symbol, width, height, duration, refreshHistoricalData])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, duration]) // Only these dependencies to prevent auto-refresh
 
   const handleRefresh = async () => {
     setIsLoading(true)
     setError(null)
+
+    // Notify parent that error state is cleared
+    if (onError) {
+      onError(symbol, false)
+    }
 
     try {
       // Force refresh of historical data
       await refreshHistoricalData()
     } catch (error) {
       console.error('Failed to refresh chart data:', error)
-      setError('Refresh failed')
+      const errorMessage = 'Refresh failed'
+      setError(errorMessage)
+      
+      // Notify parent about error
+      if (onError) {
+        onError(symbol, true, errorMessage)
+      }
     } finally {
       setIsLoading(false)
     }
@@ -296,6 +384,13 @@ function EnhancedChart({ symbol, width = 400, height = 250, className = "", dura
   const currentPrice = canvas?.dataset.currentPrice || '0'
   const periodHigh = canvas?.dataset.periodHigh || '0'
 
+  // Generate TradingView URL
+  const getTradingViewUrl = (symbol: string) => {
+    const cleanSymbol = symbol.replace('.NS', '').replace('.BO', '')
+    const exchange = symbol.includes('.BO') ? 'BSE' : 'NSE'
+    return `https://www.tradingview.com/chart/?symbol=${exchange}%3A${cleanSymbol}&utm_source=stock-screener&utm_medium=link&utm_campaign=chart&utm_term=${exchange}%3A${cleanSymbol}`
+  }
+
   return (
     <div className={`${className}`}>
       <div className="d-flex justify-content-between align-items-center mb-2">
@@ -303,15 +398,27 @@ function EnhancedChart({ symbol, width = 400, height = 250, className = "", dura
           <span className="fw-bold">{symbol}</span>
           <span className="text-muted ms-2">• {DURATION_CONFIG[duration].label}</span>
         </div>
-        <button 
-          className="btn btn-outline-secondary btn-sm p-1"
-          onClick={handleRefresh}
-          disabled={isLoading}
-          title="Refresh chart data"
-          style={{ fontSize: '10px', lineHeight: '1' }}
-        >
-          🔄
-        </button>
+        <div className="d-flex align-items-center gap-1">
+          <a 
+            href={getTradingViewUrl(symbol)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn btn-outline-secondary btn-sm p-1"
+            title="View on TradingView"
+            style={{ fontSize: '10px', lineHeight: '1', textDecoration: 'none' }}
+          >
+            📊
+          </a>
+          <button 
+            className="btn btn-outline-secondary btn-sm p-1"
+            onClick={handleRefresh}
+            disabled={isLoading}
+            title="Refresh chart data"
+            style={{ fontSize: '10px', lineHeight: '1' }}
+          >
+            🔄
+          </button>
+        </div>
       </div>
       
       {/* Metrics Section */}

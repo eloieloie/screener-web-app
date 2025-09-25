@@ -7,6 +7,16 @@ import BulkStocksPage from './pages/BulkStocksPage'
 
 function App() {
   const [currentPage, setCurrentPage] = useState<'dashboard' | 'stocks' | 'bulk' | 'charts' | 'analytics'>('dashboard')
+  const [selectedTag, setSelectedTag] = useState<string | null>(null)
+
+  const navigateToChartsWithTag = (tag: string) => {
+    setSelectedTag(tag)
+    setCurrentPage('charts')
+  }
+
+  const clearTagFilter = () => {
+    setSelectedTag(null)
+  }
 
   return (
     <div className="min-vh-100 bg-light">
@@ -25,7 +35,7 @@ function App() {
               className={`btn ${currentPage === 'stocks' ? 'btn-primary' : 'btn-outline-primary'} me-2`}
               onClick={() => setCurrentPage('stocks')}
             >
-              📊 My Stocks
+              📊 Stocks List
             </button>
             <button 
               className={`btn ${currentPage === 'bulk' ? 'btn-primary' : 'btn-outline-primary'} me-2`}
@@ -35,7 +45,10 @@ function App() {
             </button>
             <button 
               className={`btn ${currentPage === 'charts' ? 'btn-primary' : 'btn-outline-primary'} me-2`}
-              onClick={() => setCurrentPage('charts')}
+              onClick={() => {
+                clearTagFilter()
+                setCurrentPage('charts')
+              }}
             >
               📈 Charts
             </button>
@@ -49,7 +62,7 @@ function App() {
         </div>
       </nav>
 
-      <div className="container mt-4">
+      <div className="container-fluid mt-4">
         {currentPage === 'dashboard' ? (
           <>
             {/* Authentication Status */}
@@ -66,7 +79,7 @@ function App() {
                         className="btn btn-primary"
                         onClick={() => setCurrentPage('stocks')}
                       >
-                        📊 View My Stocks
+                        📊 View Stocks List
                       </button>
                       <button 
                         className="btn btn-success"
@@ -93,11 +106,11 @@ function App() {
             </div>
           </>
         ) : currentPage === 'stocks' ? (
-          <StocksPage />
+          <StocksPage onNavigateToChartsWithTag={navigateToChartsWithTag} />
         ) : currentPage === 'bulk' ? (
           <BulkStocksPage />
         ) : currentPage === 'charts' ? (
-          <ChartsPage />
+          <ChartsPage selectedTag={selectedTag} onClearTagFilter={clearTagFilter} />
         ) : (
           <Analytics />
         )}

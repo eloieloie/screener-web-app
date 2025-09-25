@@ -56,7 +56,7 @@ class KiteConnectAPI {
 
   constructor() {
     // Use backend through public domain with port forwarding
-    this.backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://el-mac.ddns.net:3001';
+    this.backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://mac.eloi.in:3001';
   }
 
   /**

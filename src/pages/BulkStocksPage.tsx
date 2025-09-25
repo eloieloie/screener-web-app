@@ -8,7 +8,7 @@ interface BulkStockEntry {
   name: string
   exchange: 'NSE' | 'BSE'
   tags: string[]
-  status: 'pending' | 'adding' | 'success' | 'error'
+  status: 'pending' | 'adding' | 'success' | 'updated' | 'error'
   error?: string
 }
 
@@ -127,9 +127,11 @@ const BulkStocksPage = () => {
         
       } catch (error) {
         console.error(`Error adding ${stock.symbol}:`, error)
+        const errorMessage = error instanceof Error ? error.message : 'Failed to add stock'
+        
         updateStock(stock.id, { 
           status: 'error', 
-          error: error instanceof Error ? error.message : 'Failed to add stock'
+          error: errorMessage
         })
       }
     }
@@ -148,6 +150,7 @@ const BulkStocksPage = () => {
       case 'pending': return '⏳'
       case 'adding': return '🔄'
       case 'success': return '✅'
+      case 'updated': return '🔄'
       case 'error': return '❌'
       default: return '⏳'
     }
@@ -158,12 +161,13 @@ const BulkStocksPage = () => {
       case 'pending': return 'text-warning'
       case 'adding': return 'text-primary'
       case 'success': return 'text-success'
+      case 'updated': return 'text-info'
       case 'error': return 'text-danger'
       default: return 'text-muted'
     }
   }
 
-  const successCount = stocks.filter(s => s.status === 'success').length
+  const successCount = stocks.filter(s => s.status === 'success' || s.status === 'updated').length
   const errorCount = stocks.filter(s => s.status === 'error').length
   const pendingCount = stocks.filter(s => s.status === 'pending').length
 
@@ -392,6 +396,12 @@ const BulkStocksPage = () => {
                           <small className="text-success">✅ Successfully added!</small>
                         </div>
                       )}
+                      
+                      {stock.status === 'updated' && (
+                        <div className="mt-2">
+                          <small className="text-info">🔄 Tags updated (stock already exists)</small>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -416,6 +426,14 @@ const BulkStocksPage = () => {
                     <li><strong>Multiple formats:</strong> Tab or comma separated</li>
                     <li>One stock per line</li>
                   </ul>
+                  
+                  <h6>🏷️ Tag Management:</h6>
+                  <ul className="small">
+                    <li>Add tags to organize your stocks</li>
+                    <li>Separate multiple tags with commas</li>
+                    <li>Tags apply to all stocks in the batch</li>
+                    <li>Examples: "tech, growth" or "banking, blue-chip"</li>
+                  </ul>
                 </div>
                 <div className="col-md-6">
                   <h6>⚡ Quick Add Features:</h6>
@@ -425,13 +443,36 @@ const BulkStocksPage = () => {
                     <li>All popular stocks included</li>
                     <li>Perfect for getting started</li>
                   </ul>
+                  
+                  <h6>🔄 Smart Duplicate Handling:</h6>
+                  <ul className="small">
+                    <li><strong>New stocks:</strong> Added to your portfolio</li>
+                    <li><strong>Existing stocks:</strong> Only new tags are added</li>
+                    <li><strong>No duplicates:</strong> Same stock won't be added twice</li>
+                    <li><strong>Tag merging:</strong> Existing tags are preserved</li>
+                  </ul>
                 </div>
               </div>
               <div className="mt-3">
-                <h6>🚀 Processing:</h6>
-                <p className="small mb-0">
-                  Stocks are added one by one with status tracking. You can remove individual stocks before processing 
-                  or clear the entire queue. Successfully added stocks will appear in your "My Stocks" page.
+                <h6>🚀 Processing Status Icons:</h6>
+                <div className="row">
+                  <div className="col-md-6">
+                    <ul className="small mb-0">
+                      <li>⏳ <strong>Pending:</strong> Waiting to be processed</li>
+                      <li>🔄 <strong>Adding:</strong> Currently being processed</li>
+                      <li>✅ <strong>Success:</strong> New stock added successfully</li>
+                    </ul>
+                  </div>
+                  <div className="col-md-6">
+                    <ul className="small mb-0">
+                      <li>🔄 <strong>Updated:</strong> Tags added to existing stock</li>
+                      <li>❌ <strong>Error:</strong> Failed to add (check symbol)</li>
+                    </ul>
+                  </div>
+                </div>
+                <p className="small mt-2 mb-0">
+                  <strong>💡 Tip:</strong> If a stock already exists in your portfolio, only the new tags you specify will be added. 
+                  This prevents duplicates while allowing you to organize existing stocks with additional tags.
                 </p>
               </div>
             </div>
