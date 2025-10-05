@@ -218,7 +218,14 @@ const requireAuth = (req, res, next) => {
 };
 
 // Helper function to convert symbol format
-const convertSymbolFormat = (symbol) => {
+const convertSymbolFormat = (symbol, exchange = null) => {
+  // If exchange is explicitly provided, use it
+  if (exchange && (exchange === 'NSE' || exchange === 'BSE')) {
+    // Clean the symbol first
+    const cleanSymbol = symbol.replace(/\.(NS|BO|BSE)\.?$/i, '').replace(/^(NSE|BSE):/i, '');
+    return `${exchange}:${cleanSymbol}`;
+  }
+  
   // Convert from Yahoo Finance format (TCS.NS) to KiteConnect format (NSE:TCS)
   if (symbol.endsWith('.NS')) {
     return `NSE:${symbol.replace('.NS', '')}`;
@@ -233,9 +240,11 @@ const convertSymbolFormat = (symbol) => {
 app.get('/api/stocks/quote/:symbol', requireAuth, async (req, res) => {
   try {
     const { symbol } = req.params;
-    const kiteSymbol = convertSymbolFormat(symbol);
-    console.log(`Converting symbol: ${symbol} -> ${kiteSymbol}`);
+    const { exchange } = req.query; // Get exchange from query parameter
+    const kiteSymbol = convertSymbolFormat(symbol, exchange);
+    console.log(`Converting symbol: ${symbol} (${exchange || 'auto'}) -> ${kiteSymbol}`);
     const quote = await kiteService.getQuote([kiteSymbol]);
+    console.log(`Quote response for ${kiteSymbol}:`, quote ? Object.keys(quote) : 'null/undefined');
     
     if (quote && quote[kiteSymbol]) {
       const stockData = quote[kiteSymbol];
@@ -258,9 +267,16 @@ app.get('/api/stocks/quote/:symbol', requireAuth, async (req, res) => {
         timestamp: new Date().toISOString()
       });
     } else {
+      console.log(`No quote data found for ${kiteSymbol}`);
       res.status(404).json({
         success: false,
-        message: `Quote not found for symbol: ${symbol}`
+        message: `Quote not found for symbol: ${symbol} on ${exchange || 'NSE'}`,
+        details: {
+          requestedSymbol: symbol,
+          exchange: exchange || 'NSE',
+          kiteSymbol: kiteSymbol,
+          note: exchange === 'BSE' ? 'BSE stocks may have limited availability in KiteConnect API' : 'Verify the symbol exists on the specified exchange'
+        }
       });
     }
   } catch (error) {
@@ -268,6 +284,74 @@ app.get('/api/stocks/quote/:symbol', requireAuth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to get stock quote',
+      error: error.message
+    });
+  }
+});
+
+// Search BSE stocks endpoint
+app.get('/api/search/bse', requireAuth, async (req, res) => {
+  try {
+    const { q, limit = 10 } = req.query;
+    
+    if (!q) {
+      return res.status(400).json({
+        success: false,
+        message: 'Query parameter "q" is required'
+      });
+    }
+    
+    // Load instruments if not cached
+    if (!instrumentsCache || !instrumentsCacheTime || Date.now() - instrumentsCacheTime > CACHE_DURATION) {
+      console.log('🔍 [BSE_SEARCH] Loading instruments...');
+      try {
+        const nseInstruments = await kiteService.getInstruments(['NSE']);
+        const bseInstruments = await kiteService.getInstruments(['BSE']);
+        instrumentsCache = [...nseInstruments, ...bseInstruments];
+        instrumentsCacheTime = Date.now();
+        console.log(`✅ [BSE_SEARCH] Loaded ${instrumentsCache.length} instruments`);
+      } catch (error) {
+        console.error(`❌ [BSE_SEARCH] Failed to load instruments:`, error.message);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to load instrument data',
+          error: error.message
+        });
+      }
+    }
+
+    const bseInstruments = instrumentsCache.filter(inst => inst.exchange === 'BSE');
+    const searchTerm = q.toLowerCase();
+    
+    const matches = bseInstruments
+      .filter(inst => 
+        inst.tradingsymbol.toLowerCase().includes(searchTerm) ||
+        inst.name.toLowerCase().includes(searchTerm) ||
+        inst.instrument_token.toString().includes(searchTerm)
+      )
+      .slice(0, parseInt(limit))
+      .map(inst => ({
+        symbol: inst.tradingsymbol,
+        name: inst.name,
+        token: inst.instrument_token,
+        exchange: inst.exchange,
+        segment: inst.segment,
+        instrument_type: inst.instrument_type
+      }));
+    
+    res.json({
+      success: true,
+      query: q,
+      total_bse_instruments: bseInstruments.length,
+      matches: matches.length,
+      results: matches
+    });
+    
+  } catch (error) {
+    console.error('Error searching BSE stocks:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to search BSE stocks',
       error: error.message
     });
   }
@@ -291,9 +375,11 @@ const getInstrumentToken = async (symbol) => {
       try {
         // Try different approaches for getting instruments
         console.log('🔍 [INSTRUMENT] Attempting getInstruments() call...');
-        instrumentsCache = await kiteService.getInstruments(['NSE']);
+        const nseInstruments = await kiteService.getInstruments(['NSE']);
+        const bseInstruments = await kiteService.getInstruments(['BSE']);
+        instrumentsCache = [...nseInstruments, ...bseInstruments];
         instrumentsCacheTime = Date.now();
-        console.log(`✅ [INSTRUMENT] Successfully cached ${instrumentsCache.length} instruments`);
+        console.log(`✅ [INSTRUMENT] Successfully cached ${instrumentsCache.length} instruments (NSE: ${nseInstruments.length}, BSE: ${bseInstruments.length})`);
       } catch (instrumentError) {
         console.error(`❌ [INSTRUMENT] getInstruments() failed:`, instrumentError.message);
         console.error(`❌ [INSTRUMENT] Error details:`, instrumentError);

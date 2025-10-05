@@ -1,87 +1,40 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useMemo } from 'react'
 import type { Stock } from '../types/Stock'
 import SimpleChart from './SimpleChart'
-import KiteConnectAPI from '../services/KiteConnectAPI'
 
 interface StockTableProps {
   stocks: Stock[]
   onRemoveStock: (id: string) => void
   onNavigateToChartsWithTag: (tag: string) => void
+  onRefreshStock?: (stockId: string, symbol: string, exchange: string) => Promise<void>
 }
 
-const StockTable = ({ stocks, onRemoveStock, onNavigateToChartsWithTag }: StockTableProps) => {
-  const [liveStocks, setLiveStocks] = useState<Stock[]>(stocks)
-  const [isRefreshing, setIsRefreshing] = useState(false)
+const StockTable = ({ stocks, onRemoveStock, onNavigateToChartsWithTag, onRefreshStock }: StockTableProps) => {
   const [expandedCharts, setExpandedCharts] = useState<Set<string>>(new Set())
-  const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+  const [refreshingStocks, setRefreshingStocks] = useState<Set<string>>(new Set())
   const [sortConfig, setSortConfig] = useState<{
     key: keyof Stock
     direction: 'asc' | 'desc'
   } | null>(null)
 
-  // Initialize KiteConnect API
-  const kiteAPI = useMemo(() => KiteConnectAPI.getInstance(), [])
-
-  // Fetch live data for all stocks
-  const fetchAllLiveData = useCallback(async (showLoading = false) => {
-    if (showLoading) {
-      setIsRefreshing(true)
-    }
-
+  // Handle individual stock refresh
+  const handleRefreshStock = async (stock: Stock) => {
+    if (!onRefreshStock) return
+    
+    setRefreshingStocks(prev => new Set(prev.add(stock.id)))
+    
     try {
-      if (!kiteAPI.isReady()) {
-        setLiveStocks(stocks)
-        return
-      }
-
-      const updatedStocks = await Promise.all(
-        stocks.map(async (stock) => {
-          try {
-            const freshData = await kiteAPI.getStockQuote(stock.symbol)
-            return freshData ? { ...stock, ...freshData } : stock
-          } catch (error) {
-            console.error(`Error fetching data for ${stock.symbol}:`, error)
-            return stock
-          }
-        })
-      )
-
-      setLiveStocks(updatedStocks)
-      setLastUpdated(new Date())
+      await onRefreshStock(stock.id, stock.symbol, stock.exchange || 'NSE')
     } catch (error) {
-      console.error('Error fetching live data:', error)
+      console.error(`Error refreshing ${stock.symbol}:`, error)
     } finally {
-      if (showLoading) {
-        setIsRefreshing(false)
-      }
+      setRefreshingStocks(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(stock.id)
+        return newSet
+      })
     }
-  }, [stocks, kiteAPI])
-
-  // Update live stocks when props change
-  useEffect(() => {
-    setLiveStocks(stocks)
-    fetchAllLiveData()
-  }, [stocks, fetchAllLiveData])
-
-  // Auto-refresh during market hours
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = new Date()
-      const currentHour = now.getHours()
-      const currentMinute = now.getMinutes()
-      const isWeekday = now.getDay() >= 1 && now.getDay() <= 5
-      
-      const isMarketHours = isWeekday && 
-        ((currentHour > 9) || (currentHour === 9 && currentMinute >= 15)) &&
-        ((currentHour < 15) || (currentHour === 15 && currentMinute <= 30))
-      
-      if (isMarketHours && kiteAPI.isReady()) {
-        fetchAllLiveData()
-      }
-    }, 30000) // 30 seconds
-
-    return () => clearInterval(interval)
-  }, [fetchAllLiveData, kiteAPI])
+  }
 
   const handleSort = (key: keyof Stock) => {
     let direction: 'asc' | 'desc' = 'asc'
@@ -92,9 +45,9 @@ const StockTable = ({ stocks, onRemoveStock, onNavigateToChartsWithTag }: StockT
   }
 
   const sortedStocks = useMemo(() => {
-    if (!sortConfig) return liveStocks
+    if (!sortConfig) return stocks
 
-    return [...liveStocks].sort((a, b) => {
+    return [...stocks].sort((a, b) => {
       const aValue = a[sortConfig.key]
       const bValue = b[sortConfig.key]
 
@@ -114,7 +67,7 @@ const StockTable = ({ stocks, onRemoveStock, onNavigateToChartsWithTag }: StockT
         return aString > bString ? -1 : aString < bString ? 1 : 0
       }
     })
-  }, [liveStocks, sortConfig])
+  }, [stocks, sortConfig])
 
   const toggleChart = (stockId: string) => {
     setExpandedCharts(prev => {
@@ -129,21 +82,6 @@ const StockTable = ({ stocks, onRemoveStock, onNavigateToChartsWithTag }: StockT
   }
 
   const formatPrice = (price: number) => price > 0 ? `₹${price.toFixed(2)}` : '-'
-  
-  const formatLastUpdated = (date: Date) => {
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffSeconds = Math.floor(diffMs / 1000)
-    const diffMinutes = Math.floor(diffSeconds / 60)
-    
-    if (diffSeconds < 60) {
-      return `${diffSeconds}s ago`
-    } else if (diffMinutes < 60) {
-      return `${diffMinutes}m ago`
-    } else {
-      return date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-    }
-  }
 
   const getSortIcon = (columnKey: keyof Stock) => {
     if (!sortConfig || sortConfig.key !== columnKey) {
@@ -157,26 +95,9 @@ const StockTable = ({ stocks, onRemoveStock, onNavigateToChartsWithTag }: StockT
       <div className="card-header bg-white border-0 d-flex justify-content-between align-items-center">
         <h5 className="mb-0">📊 Stock Portfolio</h5>
         <div className="d-flex align-items-center gap-3">
-          <small className={kiteAPI.isReady() ? "text-success" : "text-warning"}>
-            {kiteAPI.isReady() ? 
-              `📈 Live Data • Updated ${formatLastUpdated(lastUpdated)}` : 
-              `⚠️ Cached Data • Login for live prices`
-            }
+          <small className="text-info">
+            � Cached Prices • Use refresh buttons to update
           </small>
-          <button 
-            className={`btn btn-sm ${isRefreshing ? 'btn-secondary' : 'btn-outline-primary'}`}
-            onClick={() => fetchAllLiveData(true)}
-            disabled={isRefreshing}
-            title="Refresh all data"
-          >
-            {isRefreshing ? (
-              <div className="spinner-border spinner-border-sm" role="status">
-                <span className="visually-hidden">Refreshing...</span>
-              </div>
-            ) : (
-              '🔄 Refresh All'
-            )}
-          </button>
         </div>
       </div>
       
@@ -202,7 +123,6 @@ const StockTable = ({ stocks, onRemoveStock, onNavigateToChartsWithTag }: StockT
                 >
                   Price {getSortIcon('price')}
                 </th>
-                <th className="border-0 text-center">Chart</th>
                 <th className="border-0 text-center">Actions</th>
               </tr>
             </thead>
@@ -253,31 +173,52 @@ const StockTable = ({ stocks, onRemoveStock, onNavigateToChartsWithTag }: StockT
                       )}
                     </td>
                     <td className="border-0 text-end">
-                      <div className={`fw-bold ${!kiteAPI.isReady() && stock.price === 0 ? 'text-muted' : ''}`}>
-                        {stock.price === 0 && !kiteAPI.isReady() ? 'Login Required' : formatPrice(stock.price)}
+                      <div className={`fw-bold ${stock.price === 0 ? 'text-muted' : ''}`}>
+                        {stock.price === 0 ? 'No Data' : formatPrice(stock.price)}
                       </div>
+                      {stock.cachedPriceData && (
+                        <div className="small text-muted">
+                          Updated: {new Date(stock.cachedPriceData.lastUpdated).toLocaleTimeString()}
+                        </div>
+                      )}
                     </td>
                     <td className="border-0 text-center">
-                      <button 
-                        className={`btn btn-sm ${expandedCharts.has(stock.id) ? 'btn-primary' : 'btn-outline-primary'}`}
-                        onClick={() => toggleChart(stock.id)}
-                      >
-                        📊 {expandedCharts.has(stock.id) ? 'Hide' : 'Show'}
-                      </button>
-                    </td>
-                    <td className="border-0 text-center">
-                      <button 
-                        className="btn btn-sm btn-outline-danger"
-                        onClick={() => onRemoveStock(stock.id)}
-                        title="Remove stock"
-                      >
-                        🗑️
-                      </button>
+                      <div className="d-flex gap-1 justify-content-center">
+                        {onRefreshStock && (
+                          <button 
+                            className="btn btn-sm btn-outline-success"
+                            onClick={() => handleRefreshStock(stock)}
+                            disabled={refreshingStocks.has(stock.id)}
+                            title="Refresh price"
+                          >
+                            {refreshingStocks.has(stock.id) ? (
+                              <div className="spinner-border spinner-border-sm" role="status">
+                                <span className="visually-hidden">Refreshing...</span>
+                              </div>
+                            ) : (
+                              '🔄'
+                            )}
+                          </button>
+                        )}
+                        <button 
+                          className={`btn btn-sm ${expandedCharts.has(stock.id) ? 'btn-primary' : 'btn-outline-primary'}`}
+                          onClick={() => toggleChart(stock.id)}
+                        >
+                          📊 {expandedCharts.has(stock.id) ? 'Hide' : 'Show'}
+                        </button>
+                        <button 
+                          className="btn btn-sm btn-outline-danger"
+                          onClick={() => onRemoveStock(stock.id)}
+                          title="Remove stock"
+                        >
+                          🗑️
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   {expandedCharts.has(stock.id) && (
                     <tr>
-                      <td colSpan={5} className="border-0 bg-light p-3">
+                      <td colSpan={4} className="border-0 bg-light p-3">
                         <div className="d-flex justify-content-center">
                           <SimpleChart 
                             symbol={stock.symbol} 

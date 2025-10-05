@@ -202,13 +202,18 @@ class KiteConnectAPI {
   /**
    * Get quote for a single stock
    */
-  async getStockQuote(symbol: string): Promise<Stock | null> {
+  async getStockQuote(symbol: string, exchange?: string): Promise<Stock | null> {
     try {
       if (!this.isAuthenticated) {
         throw new Error('KiteConnect API not authenticated. Please login to access live stock data.');
       }
 
-      const response = await this.makeRequest<StockResponse>(`/api/stocks/quote/${symbol}`);
+      // Build URL with exchange parameter if provided
+      const url = exchange 
+        ? `/api/stocks/quote/${symbol}?exchange=${exchange}`
+        : `/api/stocks/quote/${symbol}`;
+      
+      const response = await this.makeRequest<StockResponse>(url);
       
       if (response.success && !Array.isArray(response.data)) {
         return response.data as Stock;

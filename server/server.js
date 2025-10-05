@@ -76,9 +76,12 @@ async function loadInstruments() {
   if (instrumentsLoaded || !kiteService) return;
   
   try {
-    console.log('📡 Loading NSE instruments...');
-    const instruments = await kiteService.getInstruments('NSE');
-    instruments.forEach(instrument => {
+    console.log('📡 Loading NSE and BSE instruments...');
+    const nseInstruments = await kiteService.getInstruments('NSE');
+    const bseInstruments = await kiteService.getInstruments('BSE');
+    const allInstruments = [...nseInstruments, ...bseInstruments];
+    
+    allInstruments.forEach(instrument => {
       if (instrument.instrument_type === 'EQ') {
         instrumentsCache.set(instrument.tradingsymbol, {
           instrument_token: instrument.instrument_token,
@@ -88,7 +91,7 @@ async function loadInstruments() {
       }
     });
     instrumentsLoaded = true;
-    console.log(`✅ Loaded ${instrumentsCache.size} NSE instruments`);
+    console.log(`✅ Loaded ${instrumentsCache.size} instruments (NSE: ${nseInstruments.length}, BSE: ${bseInstruments.length})`);
   } catch (error) {
     console.error('❌ Failed to load instruments:', error);
   }
@@ -268,6 +271,7 @@ app.post('/auth/logout', (req, res) => {
 app.get('/api/stocks/quote/:symbol', requireAuth, checkService, async (req, res) => {
   try {
     const { symbol } = req.params;
+    const { exchange } = req.query;
     
     if (!symbol) {
       return res.status(400).json({
@@ -277,8 +281,14 @@ app.get('/api/stocks/quote/:symbol', requireAuth, checkService, async (req, res)
 
     await loadInstruments();
     
-    const quote = await kiteService.getQuote(`NSE:${symbol.toUpperCase()}`);
-    const data = quote[`NSE:${symbol.toUpperCase()}`];
+    // Use exchange parameter if provided, otherwise default to NSE
+    const exchangePrefix = (exchange && (exchange === 'NSE' || exchange === 'BSE')) ? exchange : 'NSE';
+    const cleanSymbol = symbol.replace(/\.(NS|BO|BSE)\.?$/i, '').replace(/^(NSE|BSE):/i, '').toUpperCase();
+    const kiteSymbol = `${exchangePrefix}:${cleanSymbol}`;
+    
+    console.log(`Getting quote for ${symbol} -> ${kiteSymbol}`);
+    const quote = await kiteService.getQuote(kiteSymbol);
+    const data = quote[kiteSymbol];
     
     if (!data) {
       throw new Error(`No quote data available for ${symbol}`);
@@ -290,14 +300,14 @@ app.get('/api/stocks/quote/:symbol', requireAuth, checkService, async (req, res)
 
     const result = {
       id: instrumentToken?.toString() || symbol,
-      symbol: symbol.toUpperCase(),
-      name: instrument?.name || `${symbol.toUpperCase()} Limited`,
+      symbol: cleanSymbol,
+      name: instrument?.name || `${cleanSymbol} Limited`,
       price: data.last_price,
       change: data.net_change,
       changePercent: ((data.net_change / data.last_price) * 100),
       volume: data.volume,
       marketCap: `₹${marketCap.toLocaleString()}`,
-      exchange: 'NSE',
+      exchange: exchangePrefix,
       currency: 'INR',
       previousClose: data.last_price - data.net_change,
       dayHigh: data.ohlc.high,

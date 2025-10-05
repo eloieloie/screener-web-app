@@ -19,7 +19,7 @@ const BulkStocksPage = () => {
   const [isProcessing, setIsProcessing] = useState(false)
   const [selectedExchange, setSelectedExchange] = useState<'NSE' | 'BSE'>('NSE')
 
-  // Popular Indian stocks for quick add
+  // Popular Indian stocks for quick add (NSE symbols)
   const popularStocks = [
     { symbol: 'RELIANCE', name: 'Reliance Industries Ltd' },
     { symbol: 'TCS', name: 'Tata Consultancy Services Ltd' },
@@ -47,15 +47,24 @@ const BulkStocksPage = () => {
       ? bulkTags.split(',').map(tag => tag.trim()).filter(tag => tag)
       : []
 
-    lines.forEach((line, index) => {
+        lines.forEach((line, index) => {
       const parts = line.trim().split(/[,\t]/).map(part => part.trim())
       
       if (parts.length >= 1) {
         let symbol = parts[0].toUpperCase()
+        let detectedExchange = selectedExchange // Use selected exchange as default
         
-        // Clean common suffixes from symbols
-        symbol = symbol.replace(/\.(NS|BSE|BO)\.?$/i, '')
-        symbol = symbol.replace(/\.+$/, '') // Remove trailing dots
+        // Detect exchange from suffix and clean symbol
+        if (symbol.endsWith('.NS') || symbol.includes('NSE:')) {
+          detectedExchange = 'NSE'
+          symbol = symbol.replace(/\.(NS)\.?$/i, '').replace(/^NSE:/i, '')
+        } else if (symbol.endsWith('.BO') || symbol.endsWith('.BSE') || symbol.includes('BSE:')) {
+          detectedExchange = 'BSE'
+          symbol = symbol.replace(/\.(BO|BSE)\.?$/i, '').replace(/^BSE:/i, '')
+        }
+        
+        // Remove any remaining dots
+        symbol = symbol.replace(/\.+$/, '')
         
         const name = parts[1] || `${symbol} Company` // Default name if not provided
         
@@ -63,7 +72,7 @@ const BulkStocksPage = () => {
           id: `bulk-${Date.now()}-${index}`,
           symbol,
           name,
-          exchange: selectedExchange,
+          exchange: detectedExchange,
           tags: tags, // Apply the parsed tags to all stocks
           status: 'pending'
         })
@@ -127,7 +136,14 @@ const BulkStocksPage = () => {
         
       } catch (error) {
         console.error(`Error adding ${stock.symbol}:`, error)
-        const errorMessage = error instanceof Error ? error.message : 'Failed to add stock'
+        let errorMessage = error instanceof Error ? error.message : 'Failed to add stock'
+        
+        // Provide helpful error message for stock not found
+        if (errorMessage.includes('not found')) {
+          errorMessage = `Stock ${stock.symbol} not found on ${stock.exchange}. Verify the symbol is correct and currently trading.`
+        } else if (stock.exchange === 'BSE' && errorMessage.includes('404')) {
+          errorMessage = `BSE stock ${stock.symbol}: Live data unavailable (KiteConnect limitation). Added as metadata only.`
+        }
         
         updateStock(stock.id, { 
           status: 'error', 
@@ -184,6 +200,19 @@ const BulkStocksPage = () => {
         </div>
       </div>
 
+      {/* BSE Stock Requirements Warning */}
+      <div className="row mb-3">
+        <div className="col-12">
+          <div className="alert alert-info d-flex align-items-center" role="alert">
+            <i className="bi bi-info-circle-fill me-2"></i>
+            <div>
+              <strong>BSE Stocks:</strong> BSE stocks are supported but require valid instrument tokens or exact trading symbols from KiteConnect. 
+              Use the trading symbol exactly as it appears on BSE (e.g., "500325" for Reliance Industries on BSE).
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Input Methods */}
       <div className="row g-4 mb-4">
         {/* Manual Input */}
@@ -227,7 +256,7 @@ const BulkStocksPage = () => {
                   id="bulkInput"
                   className="form-control"
                   rows={8}
-                  placeholder="Enter stocks (one per line):&#10;RELIANCE, Reliance Industries Ltd&#10;TCS, Tata Consultancy Services&#10;INFY&#10;HDFCBANK, HDFC Bank&#10;&#10;Format: SYMBOL, Company Name (optional)&#10;You can also use comma or tab separated values"
+                  placeholder="Enter stocks (one per line):&#10;RELIANCE, Reliance Industries Ltd&#10;TCS, Tata Consultancy Services&#10;INFY.NS, Infosys (NSE)&#10;HDFCBANK, HDFC Bank&#10;&#10;BSE stocks (use exact symbols):&#10;BSE:500325, Reliance Industries (BSE)&#10;500180.BO, HDFC Bank (BSE)&#10;&#10;Format: SYMBOL, Company Name (optional)&#10;Supports NSE/BSE prefixes and .NS/.BO suffixes&#10;You can also use comma or tab separated values&#10;&#10;💡 Tip: BSE stocks need exact trading symbols from KiteConnect"
                   value={bulkText}
                   onChange={(e) => setBulkText(e.target.value)}
                 />
@@ -421,10 +450,20 @@ const BulkStocksPage = () => {
                 <div className="col-md-6">
                   <h6>📝 Manual Entry Format:</h6>
                   <ul className="small">
-                    <li><strong>Symbol only:</strong> RELIANCE</li>
-                    <li><strong>Symbol with name:</strong> RELIANCE, Reliance Industries Ltd</li>
+                    <li><strong>NSE stocks:</strong> RELIANCE or RELIANCE.NS</li>
+                    <li><strong>BSE stocks:</strong> 500325.BO or BSE:500325 (Reliance) <small className="text-muted">Use exact BSE trading symbols</small></li>
+                    <li><strong>With name:</strong> RELIANCE, Reliance Industries Ltd</li>
                     <li><strong>Multiple formats:</strong> Tab or comma separated</li>
                     <li>One stock per line</li>
+                  </ul>
+                  
+                  <h6>🏢 Common BSE Stock Symbols:</h6>
+                  <ul className="small text-muted">
+                    <li>500325 - Reliance Industries</li>
+                    <li>500180 - HDFC Bank</li>
+                    <li>532540 - TCS</li>
+                    <li>500875 - ITC</li>
+                    <li>500209 - Infosys</li>
                   </ul>
                   
                   <h6>🏷️ Tag Management:</h6>
@@ -433,6 +472,15 @@ const BulkStocksPage = () => {
                     <li>Separate multiple tags with commas</li>
                     <li>Tags apply to all stocks in the batch</li>
                     <li>Examples: "tech, growth" or "banking, blue-chip"</li>
+                  </ul>
+                  
+                  <h6>🔄 Exchange Detection:</h6>
+                  <ul className="small">
+                    <li><strong>Auto-detect:</strong> .NS/.BO suffixes detected automatically</li>
+                    <li><strong>Prefix format:</strong> NSE: or BSE: prefixes supported</li>
+                    <li><strong>Default exchange:</strong> Uses selected exchange if no suffix</li>
+                    <li><strong>BSE symbols:</strong> Use exact trading symbols (e.g., 500325 for Reliance, 500180 for HDFC Bank)</li>
+                    <li><strong>Full support:</strong> Both NSE and BSE stocks verified through KiteConnect API</li>
                   </ul>
                 </div>
                 <div className="col-md-6">

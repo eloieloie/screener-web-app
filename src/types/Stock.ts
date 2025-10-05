@@ -15,9 +15,25 @@ export interface Stock {
   fiftyTwoWeekHigh?: number;
   fiftyTwoWeekLow?: number;
   tags?: string[]; // Array of tags for categorization
+  // Cached price data fields
+  cachedPriceData?: {
+    price: number;
+    change: number;
+    changePercent: number;
+    volume?: number;
+    marketCap?: string;
+    currency?: string;
+    previousClose?: number;
+    dayHigh?: number;
+    dayLow?: number;
+    fiftyTwoWeekHigh?: number;
+    fiftyTwoWeekLow?: number;
+    lastUpdated: Date;
+  };
+  isRefreshing?: boolean; // UI state for refresh button
 }
 
-// Database interface - only stores metadata, no price data
+// Database interface - stores metadata and cached price data
 export interface StockMetadata {
   id: string;
   symbol: string;
@@ -26,6 +42,21 @@ export interface StockMetadata {
   tags: string[]; // Array of tags for categorization
   createdAt: Date;
   updatedAt: Date;
+  // Cached price data (optional - may not exist for newly added stocks)
+  cachedPriceData?: {
+    price: number;
+    change: number;
+    changePercent: number;
+    volume?: number;
+    marketCap?: string;
+    currency?: string;
+    previousClose?: number;
+    dayHigh?: number;
+    dayLow?: number;
+    fiftyTwoWeekHigh?: number;
+    fiftyTwoWeekLow?: number;
+    lastUpdated: Date;
+  };
 }
 
 export interface AddStockForm {

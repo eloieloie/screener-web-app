@@ -3,6 +3,7 @@ import {
   doc, 
   addDoc, 
   getDocs, 
+  getDoc,
   deleteDoc,
   onSnapshot,
   query,
@@ -64,6 +65,83 @@ const updateStockTags = async (stockId: string, newTags: string[]): Promise<void
   }
 };
 
+// Helper function to save cached price data to Firebase
+const saveCachedPriceData = async (stockId: string, stockData: Stock): Promise<void> => {
+  try {
+    const stockRef = doc(db, STOCKS_COLLECTION, stockId);
+    
+    // Filter out undefined values to prevent Firebase errors
+    const rawCachedPriceData = {
+      price: stockData.price,
+      change: stockData.change,
+      changePercent: stockData.changePercent,
+      volume: stockData.volume,
+      marketCap: stockData.marketCap,
+      currency: stockData.currency,
+      previousClose: stockData.previousClose,
+      dayHigh: stockData.dayHigh,
+      dayLow: stockData.dayLow,
+      fiftyTwoWeekHigh: stockData.fiftyTwoWeekHigh,
+      fiftyTwoWeekLow: stockData.fiftyTwoWeekLow,
+      lastUpdated: Timestamp.now()
+    };
+    
+    // Remove undefined values to prevent Firestore errors
+    const cachedPriceData = Object.fromEntries(
+      Object.entries(rawCachedPriceData).filter(([, value]) => value !== undefined)
+    );
+    
+    await updateDoc(stockRef, {
+      cachedPriceData: cachedPriceData,
+      updatedAt: Timestamp.now()
+    });
+  } catch (error) {
+    console.error('Error saving cached price data:', error);
+    throw new Error('Failed to save price data');
+  }
+};
+
+// Function to refresh price data for a specific stock
+export const refreshStockPrice = async (stockId: string, symbol: string, exchange: string): Promise<Stock> => {
+  try {
+    console.log(`Refreshing price for ${symbol} on ${exchange}`);
+    
+    // Check if API is authenticated
+    if (!kiteAPI.isReady()) {
+      throw new Error('KiteConnect API not authenticated. Please log in to Zerodha to refresh stock prices.');
+    }
+    
+    // Fetch fresh data from API
+    const stockDetails = await kiteAPI.getStockQuote(symbol, exchange);
+    
+    if (!stockDetails) {
+      throw new Error(`Unable to fetch fresh data for ${symbol}. Please check if the symbol is valid and currently trading.`);
+    }
+    
+    // Save the fresh data to Firebase cache
+    await saveCachedPriceData(stockId, stockDetails);
+    
+    // Get the metadata to include tags
+    const stockRef = doc(db, STOCKS_COLLECTION, stockId);
+    const docSnapshot = await getDoc(stockRef);
+    const metadata = docSnapshot.data();
+    
+    return {
+      ...stockDetails,
+      id: stockId,
+      tags: metadata?.tags || []
+    };
+    
+  } catch (error) {
+    console.error('Error refreshing stock price:', error);
+    // Provide more specific error message
+    if (error instanceof Error) {
+      throw error; // Re-throw with original message
+    }
+    throw new Error('Failed to refresh stock price. Please try again.');
+  }
+};
+
 // Add a new stock to Firestore - only metadata, no price data
 // If stock already exists, only add new tags that aren't already present
 export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
@@ -83,19 +161,17 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
       
       if (newTags.length === 0) {
         console.log(`All tags already exist for ${stockData.symbol}. No updates needed.`);
-        // Return existing stock data with live prices if available
-        if (kiteAPI.isReady()) {
-          const stockDetails = await kiteAPI.getStockQuote(stockData.symbol);
-          if (stockDetails) {
-            return {
-              ...stockDetails,
-              id: existingStock.id,
-              tags: existingStock.tags
-            };
-          }
+      // Return existing stock data with live prices if available
+      if (kiteAPI.isReady()) {
+        const stockDetails = await kiteAPI.getStockQuote(stockData.symbol, stockData.exchange);
+        if (stockDetails) {
+          return {
+            ...stockDetails,
+            id: existingStock.id,
+            tags: existingStock.tags
+          };
         }
-        
-        // Return basic structure if API not available
+      }        // Return basic structure if API not available
         return {
           id: existingStock.id,
           symbol: stockData.symbol,
@@ -117,7 +193,7 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
       // Return updated stock data with live prices if available
       const updatedTags = [...existingStock.tags, ...newTags];
       if (kiteAPI.isReady()) {
-        const stockDetails = await kiteAPI.getStockQuote(stockData.symbol);
+        const stockDetails = await kiteAPI.getStockQuote(stockData.symbol, stockData.exchange);
         if (stockDetails) {
           return {
             ...stockDetails,
@@ -177,29 +253,53 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
     }
     
     // Verify stock exists by getting API data (but don't store it)
-    const stockDetails = await kiteAPI.getStockQuote(stockData.symbol);
+    const stockDetails = await kiteAPI.getStockQuote(stockData.symbol, stockData.exchange);
     
     if (!stockDetails) {
-      throw new Error(`Stock ${stockData.symbol} not found`);
+      if (stockData.exchange === 'BSE') {
+        throw new Error(`BSE stock ${stockData.symbol} not found. BSE stocks require valid instrument tokens or trading symbols. Please check if this stock exists on BSE through KiteConnect.`);
+      } else {
+        throw new Error(`Stock ${stockData.symbol} not found on ${stockData.exchange}. Please verify the symbol is correct and currently trading.`);
+      }
     }
     
-    // Only store metadata in Firebase - no price data
+    // Store metadata AND cached price data in Firebase
+    const cachedPriceData = {
+      price: stockDetails.price,
+      change: stockDetails.change,
+      changePercent: stockDetails.changePercent,
+      volume: stockDetails.volume,
+      marketCap: stockDetails.marketCap,
+      currency: stockDetails.currency,
+      previousClose: stockDetails.previousClose,
+      dayHigh: stockDetails.dayHigh,
+      dayLow: stockDetails.dayLow,
+      fiftyTwoWeekHigh: stockDetails.fiftyTwoWeekHigh,
+      fiftyTwoWeekLow: stockDetails.fiftyTwoWeekLow,
+      lastUpdated: Timestamp.now()
+    };
+
     const stockDocument = {
       symbol: stockData.symbol,
       name: stockData.name,
       exchange: stockData.exchange,
       tags: stockData.tags || [],
       createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now()
+      updatedAt: Timestamp.now(),
+      cachedPriceData: cachedPriceData
     };
 
     const docRef = await addDoc(collection(db, STOCKS_COLLECTION), stockDocument);
 
-    // Return the live API data with the Firebase ID and tags
+    // Return the stock data with cached price info
     return {
       ...stockDetails,
       id: docRef.id,
-      tags: stockData.tags || []
+      tags: stockData.tags || [],
+      cachedPriceData: {
+        ...cachedPriceData,
+        lastUpdated: cachedPriceData.lastUpdated.toDate()
+      }
     };
   } catch (error) {
     console.error('Error adding/updating stock:', error);
@@ -207,124 +307,46 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
   }
 };
 
-// Get all stocks from Firestore metadata and fetch live price data from API
+// Get all stocks from Firestore using cached price data
 export const getStocks = async (): Promise<Stock[]> => {
   try {
     const querySnapshot = await getDocs(
       query(collection(db, STOCKS_COLLECTION), orderBy('createdAt', 'desc'))
     );
     
-    const stockPromises: Promise<Stock>[] = [];
-    querySnapshot.forEach((doc) => {
-      const metadata = doc.data(); // Only contains symbol, name, exchange, tags, timestamps
-      
-      // Fetch ALL price data from API - nothing from database
-      const stockPromise = kiteAPI.getStockQuote(metadata.symbol)
-        .then(stockDetails => {
-          if (stockDetails) {
-            return {
-              ...stockDetails,
-              id: doc.id, // Only use the Firebase ID, all other data from API
-              tags: metadata.tags || [] // Include tags from metadata
-            };
-          } else {
-            // Return basic metadata if API fails - no price data
-            return {
-              id: doc.id,
-              symbol: metadata.symbol,
-              name: metadata.name,
-              price: 0,
-              change: 0,
-              changePercent: 0,
-              exchange: metadata.exchange as 'NSE' | 'BSE',
-              currency: 'INR',
-              marketCap: 'N/A',
-              tags: metadata.tags || []
-            } as Stock;
-          }
-        })
-        .catch(error => {
-          console.error(`Error fetching live data for ${metadata.symbol}:`, error);
-          // Return basic metadata if API fails
-          return {
-            id: doc.id,
-            symbol: metadata.symbol,
-            name: metadata.name,
-            price: 0,
-            change: 0,
-            changePercent: 0,
-            exchange: metadata.exchange as 'NSE' | 'BSE',
-            currency: 'INR',
-            marketCap: 'N/A',
-            tags: metadata.tags || []
-          } as Stock;
-        });
-      stockPromises.push(stockPromise);
-    });
+    const stocks: Stock[] = [];
     
-    return await Promise.all(stockPromises);
-  } catch (error) {
-    console.error('Error getting stocks:', error);
-    throw new Error('Failed to fetch stocks');
-  }
-};
-
-// Subscribe to real-time metadata updates from Firebase and fetch live prices from API
-export const subscribeToStocks = (callback: (stocks: Stock[]) => void): (() => void) => {
-  const q = query(collection(db, STOCKS_COLLECTION), orderBy('createdAt', 'desc'));
-  
-  return onSnapshot(q, async (querySnapshot) => {
-    const stockPromises: Promise<Stock>[] = [];
     querySnapshot.forEach((doc) => {
-      const metadata = doc.data(); // Only metadata from Firebase
+      const metadata = doc.data();
       
-      // Check if API is authenticated before making calls
-      if (kiteAPI.isReady()) {
-        // Fetch ALL live price data from API - never from database
-        const stockPromise = kiteAPI.getStockQuote(metadata.symbol)
-          .then(stockDetails => {
-            if (stockDetails) {
-              return {
-                ...stockDetails,
-                id: doc.id, // Only Firebase ID, everything else from API
-                tags: metadata.tags || [] // Include tags from metadata
-              };
-            } else {
-              // Return basic metadata if API fails
-              return {
-                id: doc.id,
-                symbol: metadata.symbol,
-                name: metadata.name,
-                price: 0,
-                change: 0,
-                changePercent: 0,
-                exchange: metadata.exchange as 'NSE' | 'BSE',
-                currency: 'INR',
-                marketCap: 'N/A',
-                tags: metadata.tags || []
-              } as Stock;
-            }
-          })
-          .catch(() => {
-            console.warn(`Live data unavailable for ${metadata.symbol} - authentication required`);
-            // Return basic metadata if API fails
-            return {
-              id: doc.id,
-              symbol: metadata.symbol,
-              name: metadata.name,
-              price: 0,
-              change: 0,
-              changePercent: 0,
-              exchange: metadata.exchange as 'NSE' | 'BSE',
-              currency: 'INR',
-              marketCap: 'N/A',
-              tags: metadata.tags || []
-            } as Stock;
-          });
-        stockPromises.push(stockPromise);
+      // Use cached price data if available, otherwise return stock with zero prices
+      if (metadata.cachedPriceData) {
+        const cachedData = metadata.cachedPriceData;
+        stocks.push({
+          id: doc.id,
+          symbol: metadata.symbol,
+          name: metadata.name,
+          price: cachedData.price || 0,
+          change: cachedData.change || 0,
+          changePercent: cachedData.changePercent || 0,
+          volume: cachedData.volume,
+          marketCap: cachedData.marketCap || 'N/A',
+          currency: cachedData.currency || 'INR',
+          previousClose: cachedData.previousClose,
+          dayHigh: cachedData.dayHigh,
+          dayLow: cachedData.dayLow,
+          fiftyTwoWeekHigh: cachedData.fiftyTwoWeekHigh,
+          fiftyTwoWeekLow: cachedData.fiftyTwoWeekLow,
+          exchange: metadata.exchange as 'NSE' | 'BSE',
+          tags: metadata.tags || [],
+          cachedPriceData: {
+            ...cachedData,
+            lastUpdated: cachedData.lastUpdated?.toDate() || new Date() // Convert Firestore timestamp to Date
+          }
+        });
       } else {
-        // If not authenticated, return basic metadata immediately
-        const basicStock: Stock = {
+        // No cached data available - show stock with empty price data
+        stocks.push({
           id: doc.id,
           symbol: metadata.symbol,
           name: metadata.name,
@@ -335,17 +357,70 @@ export const subscribeToStocks = (callback: (stocks: Stock[]) => void): (() => v
           currency: 'INR',
           marketCap: 'N/A',
           tags: metadata.tags || []
-        };
-        stockPromises.push(Promise.resolve(basicStock));
+        });
       }
     });
     
-    try {
-      const stocks = await Promise.all(stockPromises);
-      callback(stocks);
-    } catch (error) {
-      console.error('Error in stocks subscription:', error);
-    }
+    return stocks;
+  } catch (error) {
+    console.error('Error getting stocks:', error);
+    throw new Error('Failed to fetch stocks');
+  }
+};
+
+// Subscribe to real-time metadata updates from Firebase and use cached price data
+export const subscribeToStocks = (callback: (stocks: Stock[]) => void): (() => void) => {
+  const q = query(collection(db, STOCKS_COLLECTION), orderBy('createdAt', 'desc'));
+  
+  return onSnapshot(q, async (querySnapshot) => {
+    const stocks: Stock[] = [];
+    
+    querySnapshot.forEach((doc) => {
+      const metadata = doc.data();
+      
+      // Use cached price data if available, otherwise return stock with zero prices
+      if (metadata.cachedPriceData) {
+        const cachedData = metadata.cachedPriceData;
+        stocks.push({
+          id: doc.id,
+          symbol: metadata.symbol,
+          name: metadata.name,
+          price: cachedData.price || 0,
+          change: cachedData.change || 0,
+          changePercent: cachedData.changePercent || 0,
+          volume: cachedData.volume,
+          marketCap: cachedData.marketCap || 'N/A',
+          currency: cachedData.currency || 'INR',
+          previousClose: cachedData.previousClose,
+          dayHigh: cachedData.dayHigh,
+          dayLow: cachedData.dayLow,
+          fiftyTwoWeekHigh: cachedData.fiftyTwoWeekHigh,
+          fiftyTwoWeekLow: cachedData.fiftyTwoWeekLow,
+          exchange: metadata.exchange as 'NSE' | 'BSE',
+          tags: metadata.tags || [],
+          cachedPriceData: {
+            ...cachedData,
+            lastUpdated: cachedData.lastUpdated?.toDate() || new Date() // Convert Firestore timestamp to Date
+          }
+        });
+      } else {
+        // No cached data available - show stock with empty price data
+        stocks.push({
+          id: doc.id,
+          symbol: metadata.symbol,
+          name: metadata.name,
+          price: 0,
+          change: 0,
+          changePercent: 0,
+          exchange: metadata.exchange as 'NSE' | 'BSE',
+          currency: 'INR',
+          marketCap: 'N/A',
+          tags: metadata.tags || []
+        });
+      }
+    });
+    
+    callback(stocks);
   }, (error) => {
     console.error('Error in stocks subscription:', error);
   });
