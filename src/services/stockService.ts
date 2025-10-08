@@ -264,7 +264,7 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
     }
     
     // Store metadata AND cached price data in Firebase
-    const cachedPriceData = {
+    const rawCachedPriceData = {
       price: stockDetails.price,
       change: stockDetails.change,
       changePercent: stockDetails.changePercent,
@@ -279,6 +279,11 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
       lastUpdated: Timestamp.now()
     };
 
+    // Filter out undefined values to avoid Firebase errors
+    const cachedPriceData = Object.fromEntries(
+      Object.entries(rawCachedPriceData).filter(([, value]) => value !== undefined)
+    );
+
     const stockDocument = {
       symbol: stockData.symbol,
       name: stockData.name,
@@ -292,14 +297,19 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
     const docRef = await addDoc(collection(db, STOCKS_COLLECTION), stockDocument);
 
     // Return the stock data with cached price info
+    const returnCachedData = {
+      price: stockDetails.price || 0,
+      change: stockDetails.change || 0,
+      changePercent: stockDetails.changePercent || 0,
+      ...cachedPriceData,
+      lastUpdated: rawCachedPriceData.lastUpdated.toDate()
+    };
+
     return {
       ...stockDetails,
       id: docRef.id,
       tags: stockData.tags || [],
-      cachedPriceData: {
-        ...cachedPriceData,
-        lastUpdated: cachedPriceData.lastUpdated.toDate()
-      }
+      cachedPriceData: returnCachedData
     };
   } catch (error) {
     console.error('Error adding/updating stock:', error);

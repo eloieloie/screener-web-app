@@ -12,12 +12,70 @@ interface BulkStockEntry {
   error?: string
 }
 
+interface LookupResult {
+  lineNumber: number
+  companyName: string
+  symbol?: string
+  exchange?: 'NSE' | 'BSE'
+  status: 'pending' | 'found' | 'not-found' | 'multiple' | 'both-exchanges'
+  candidates?: Array<{ symbol: string, exchange: 'NSE' | 'BSE', name: string }>
+  nseSymbol?: string
+  bseSymbol?: string
+}
+
 const BulkStocksPage = () => {
   const [bulkText, setBulkText] = useState('')
   const [bulkTags, setBulkTags] = useState('')
   const [stocks, setStocks] = useState<BulkStockEntry[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
   const [selectedExchange, setSelectedExchange] = useState<'NSE' | 'BSE'>('NSE')
+  const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [csvProcessing, setCsvProcessing] = useState(false)
+  const [lookupResults, setLookupResults] = useState<LookupResult[]>([])
+  const [showLookupResults, setShowLookupResults] = useState(false)
+  const [csvDelimiter, setCsvDelimiter] = useState(',')
+  const [csvColumnNumber, setCsvColumnNumber] = useState(2) // Default to column 2 (company name)
+  const [csvMode, setCsvMode] = useState<'lookup' | 'direct'>('lookup') // New mode for CSV processing
+  const [csvNameColumn, setCsvNameColumn] = useState(1) // Column containing company names in direct mode
+  const [failedSymbols, setFailedSymbols] = useState<Array<{symbol: string, name: string, error: string}>>([])
+  const [showFailedSymbols, setShowFailedSymbols] = useState(false)
+
+  // Company name to stock symbol mapping for lookup
+  const companySymbolMap = [
+    // Popular NSE stocks
+    { symbol: 'RELIANCE', exchange: 'NSE' as const, name: 'Reliance Industries', aliases: ['Reliance Industries Ltd', 'Reliance Industries Limited', 'RIL'] },
+    { symbol: 'TCS', exchange: 'NSE' as const, name: 'Tata Consultancy Services', aliases: ['Tata Consultancy Services Ltd', 'TCS Limited'] },
+    { symbol: 'HDFCBANK', exchange: 'NSE' as const, name: 'HDFC Bank', aliases: ['HDFC Bank Ltd', 'HDFC Bank Limited'] },
+    { symbol: 'INFY', exchange: 'NSE' as const, name: 'Infosys', aliases: ['Infosys Ltd', 'Infosys Limited'] },
+    { symbol: 'ICICIBANK', exchange: 'NSE' as const, name: 'ICICI Bank', aliases: ['ICICI Bank Ltd', 'ICICI Bank Limited'] },
+    { symbol: 'HINDUNILVR', exchange: 'NSE' as const, name: 'Hindustan Unilever', aliases: ['Hindustan Unilever Ltd', 'HUL'] },
+    { symbol: 'ITC', exchange: 'NSE' as const, name: 'ITC', aliases: ['ITC Ltd', 'ITC Limited'] },
+    { symbol: 'SBIN', exchange: 'NSE' as const, name: 'State Bank of India', aliases: ['SBI', 'State Bank Of India'] },
+    { symbol: 'BHARTIARTL', exchange: 'NSE' as const, name: 'Bharti Airtel', aliases: ['Bharti Airtel Ltd', 'Airtel'] },
+    { symbol: 'KOTAKBANK', exchange: 'NSE' as const, name: 'Kotak Mahindra Bank', aliases: ['Kotak Bank', 'Kotak Mahindra Bank Ltd'] },
+    { symbol: 'LT', exchange: 'NSE' as const, name: 'Larsen & Toubro', aliases: ['L&T', 'Larsen And Toubro Ltd'] },
+    { symbol: 'HCLTECH', exchange: 'NSE' as const, name: 'HCL Technologies', aliases: ['HCL Tech', 'HCL Technologies Ltd'] },
+    { symbol: 'AXISBANK', exchange: 'NSE' as const, name: 'Axis Bank', aliases: ['Axis Bank Ltd', 'Axis Bank Limited'] },
+    { symbol: 'ASIANPAINT', exchange: 'NSE' as const, name: 'Asian Paints', aliases: ['Asian Paints Ltd', 'Asian Paints Limited'] },
+    { symbol: 'MARUTI', exchange: 'NSE' as const, name: 'Maruti Suzuki', aliases: ['Maruti Suzuki India Ltd', 'MSIL'] },
+    { symbol: 'NESTLEIND', exchange: 'NSE' as const, name: 'Nestle India', aliases: ['Nestle India Ltd', 'Nestle'] },
+    { symbol: 'ULTRACEMCO', exchange: 'NSE' as const, name: 'UltraTech Cement', aliases: ['UltraTech Cement Ltd', 'Ultratech'] },
+    { symbol: 'TITAN', exchange: 'NSE' as const, name: 'Titan Company', aliases: ['Titan', 'Titan Company Ltd'] },
+    { symbol: 'WIPRO', exchange: 'NSE' as const, name: 'Wipro', aliases: ['Wipro Ltd', 'Wipro Limited'] },
+    { symbol: 'NTPC', exchange: 'NSE' as const, name: 'NTPC', aliases: ['NTPC Ltd', 'National Thermal Power Corporation'] },
+    
+    // BSE equivalents
+    { symbol: '500325', exchange: 'BSE' as const, name: 'Reliance Industries', aliases: ['Reliance Industries Ltd', 'RIL'] },
+    { symbol: '532540', exchange: 'BSE' as const, name: 'Tata Consultancy Services', aliases: ['TCS', 'TCS Ltd'] },
+    { symbol: '500180', exchange: 'BSE' as const, name: 'HDFC Bank', aliases: ['HDFC Bank Ltd'] },
+    { symbol: '500209', exchange: 'BSE' as const, name: 'Infosys', aliases: ['Infosys Ltd'] },
+    { symbol: '532174', exchange: 'BSE' as const, name: 'ICICI Bank', aliases: ['ICICI Bank Ltd'] },
+    { symbol: '500696', exchange: 'BSE' as const, name: 'Hindustan Unilever', aliases: ['HUL'] },
+    { symbol: '500875', exchange: 'BSE' as const, name: 'ITC', aliases: ['ITC Ltd'] },
+    { symbol: '500112', exchange: 'BSE' as const, name: 'State Bank of India', aliases: ['SBI'] },
+    { symbol: '532454', exchange: 'BSE' as const, name: 'Bharti Airtel', aliases: ['Airtel'] },
+    { symbol: '500247', exchange: 'BSE' as const, name: 'Kotak Mahindra Bank', aliases: ['Kotak Bank'] }
+  ]
 
   // Popular Indian stocks for quick add (NSE symbols)
   const popularStocks = [
@@ -100,6 +158,242 @@ const BulkStocksPage = () => {
     setStocks(prev => [...prev, ...newStocks])
   }
 
+  const lookupStockSymbol = (companyName: string, preferredExchange?: 'NSE' | 'BSE') => {
+    const searchTerm = companyName.toLowerCase().trim()
+    const matches = companySymbolMap.filter(stock => {
+      const nameMatch = stock.name.toLowerCase().includes(searchTerm) ||
+                       searchTerm.includes(stock.name.toLowerCase())
+      const aliasMatch = stock.aliases.some(alias => 
+        alias.toLowerCase().includes(searchTerm) ||
+        searchTerm.includes(alias.toLowerCase())
+      )
+      return nameMatch || aliasMatch
+    })
+
+    if (matches.length === 0) {
+      return { status: 'not-found' as const, candidates: [] }
+    }
+
+    // Check if we have both NSE and BSE matches for the same company
+    const nseMatches = matches.filter(m => m.exchange === 'NSE')
+    const bseMatches = matches.filter(m => m.exchange === 'BSE')
+
+    // If we have both NSE and BSE, return both
+    if (nseMatches.length > 0 && bseMatches.length > 0) {
+      return {
+        status: 'both-exchanges' as const,
+        candidates: matches,
+        nseMatch: nseMatches[0],
+        bseMatch: bseMatches[0]
+      }
+    }
+
+    // If preferred exchange is specified, prioritize it
+    if (preferredExchange) {
+      const preferredMatch = matches.find(m => m.exchange === preferredExchange)
+      if (preferredMatch) {
+        return {
+          status: 'found' as const,
+          symbol: preferredMatch.symbol,
+          exchange: preferredMatch.exchange,
+          candidates: matches
+        }
+      }
+    }
+
+    // If only one match, return it
+    if (matches.length === 1) {
+      return {
+        status: 'found' as const,
+        symbol: matches[0].symbol,
+        exchange: matches[0].exchange,
+        candidates: matches
+      }
+    }
+
+    // Multiple matches found
+    return {
+      status: 'multiple' as const,
+      candidates: matches
+    }
+  }
+
+  const handleCsvFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file && file.type === 'text/csv') {
+      setCsvFile(file)
+    } else {
+      setCsvFile(null)
+      if (file) {
+        alert('Please select a valid CSV file.')
+      }
+    }
+  }
+
+  const processCsvFile = async () => {
+    if (!csvFile) return
+
+    setCsvProcessing(true)
+    
+    try {
+      const text = await csvFile.text()
+      const lines = text.split('\n').filter(line => line.trim())
+      
+      // Parse tags from bulkTags input for CSV stocks
+      const tags = bulkTags.trim() 
+        ? bulkTags.split(',').map(tag => tag.trim()).filter(tag => tag)
+        : ['csv-import'] // Default tag for CSV imports
+
+      const lookupResults: LookupResult[] = []
+      const newStocks: BulkStockEntry[] = []
+
+      lines.forEach((line, index) => {
+        if (index === 0 && (line.toLowerCase().includes('line') || line.toLowerCase().includes('number') || line.toLowerCase().includes('company') || line.toLowerCase().includes('symbol') || line.toLowerCase().includes('name'))) {
+          // Skip header row
+          return
+        }
+
+        // Split by the selected delimiter and clean up quotes
+        const parts = line.trim().split(csvDelimiter).map(part => part.trim().replace(/^["']|["']$/g, ''))
+        
+        if (csvMode === 'direct') {
+          // Direct mode: Get symbol and name from specified columns
+          const symbolColumnIndex = csvColumnNumber - 1
+          const nameColumnIndex = csvNameColumn - 1
+          
+          if (parts.length > Math.max(symbolColumnIndex, nameColumnIndex)) {
+            const symbol = parts[symbolColumnIndex]?.trim()
+            const companyName = parts[nameColumnIndex]?.trim()
+            
+            if (symbol && companyName) {
+              // Add directly to stocks list without lookup
+              newStocks.push({
+                id: `csv-${Date.now()}-${index}`,
+                symbol: symbol.toUpperCase(),
+                name: companyName,
+                exchange: selectedExchange,
+                tags: tags,
+                status: 'pending'
+              })
+              
+              // Add to lookup results for display
+              lookupResults.push({
+                lineNumber: index + 1,
+                companyName,
+                symbol: symbol.toUpperCase(),
+                exchange: selectedExchange,
+                status: 'found',
+                candidates: []
+              })
+            }
+          }
+        } else {
+          // Lookup mode: Use the specified column number (1-based index, so subtract 1)
+          const targetColumnIndex = csvColumnNumber - 1
+          
+          if (parts.length > targetColumnIndex && parts[targetColumnIndex]) {
+            const companyName = parts[targetColumnIndex].trim()
+            
+            if (companyName) {
+              // Try to lookup the stock symbol
+              const lookupResult = lookupStockSymbol(companyName, selectedExchange)
+              
+              const resultEntry: LookupResult = {
+                lineNumber: index + 1,
+                companyName,
+                status: lookupResult.status,
+                candidates: lookupResult.candidates
+              }
+
+              if (lookupResult.status === 'found') {
+                resultEntry.symbol = lookupResult.symbol
+                resultEntry.exchange = lookupResult.exchange
+                
+                // Add to stocks list if found
+                newStocks.push({
+                  id: `csv-${Date.now()}-${index}`,
+                  symbol: lookupResult.symbol!,
+                  name: companyName,
+                  exchange: lookupResult.exchange!,
+                  tags: tags,
+                  status: 'pending'
+                })
+              } else if (lookupResult.status === 'both-exchanges' && 'nseMatch' in lookupResult && 'bseMatch' in lookupResult) {
+                // Handle both exchanges found
+                resultEntry.nseSymbol = lookupResult.nseMatch.symbol
+                resultEntry.bseSymbol = lookupResult.bseMatch.symbol
+                
+                // Add both NSE and BSE stocks to the list
+                newStocks.push({
+                  id: `csv-nse-${Date.now()}-${index}`,
+                  symbol: lookupResult.nseMatch.symbol,
+                  name: companyName,
+                  exchange: 'NSE',
+                  tags: [...tags, 'nse'],
+                  status: 'pending'
+                })
+                
+                newStocks.push({
+                  id: `csv-bse-${Date.now()}-${index}`,
+                  symbol: lookupResult.bseMatch.symbol,
+                  name: companyName,
+                  exchange: 'BSE',
+                  tags: [...tags, 'bse'],
+                  status: 'pending'
+                })
+              }
+              
+              lookupResults.push(resultEntry)
+            }
+          }
+        }
+      })
+
+      // Set lookup results and show them
+      setLookupResults(lookupResults)
+      setShowLookupResults(true)
+      
+      // Add successfully found stocks to the queue
+      if (newStocks.length > 0) {
+        setStocks(prev => [...prev, ...newStocks])
+      }
+      
+      // Clear the file input
+      setCsvFile(null)
+      const fileInput = document.getElementById('csvFileInput') as HTMLInputElement
+      if (fileInput) fileInput.value = ''
+
+    } catch (error) {
+      console.error('Error processing CSV file:', error)
+      alert('Error processing CSV file. Please check the file format.')
+    } finally {
+      setCsvProcessing(false)
+    }
+  }
+
+  const addLookupResult = (result: LookupResult, symbol: string, exchange: 'NSE' | 'BSE') => {
+    // Parse tags from bulkTags input
+    const tags = bulkTags.trim() 
+      ? bulkTags.split(',').map(tag => tag.trim()).filter(tag => tag)
+      : ['csv-import']
+
+    const newStock: BulkStockEntry = {
+      id: `lookup-${Date.now()}-${result.lineNumber}`,
+      symbol,
+      name: result.companyName,
+      exchange,
+      tags,
+      status: 'pending'
+    }
+
+    setStocks(prev => [...prev, newStock])
+    
+    // Update the lookup result status
+    setLookupResults(prev => prev.map(r => 
+      r.lineNumber === result.lineNumber ? { ...r, status: 'found' as const, symbol, exchange } : r
+    ))
+  }
+
   const removeStock = (id: string) => {
     setStocks(prev => prev.filter(stock => stock.id !== id))
   }
@@ -114,6 +408,8 @@ const BulkStocksPage = () => {
     if (stocks.length === 0) return
 
     setIsProcessing(true)
+    setFailedSymbols([]) // Reset failed symbols list
+    const tempFailedSymbols: Array<{symbol: string, name: string, error: string}> = []
     
     for (const stock of stocks) {
       if (stock.status === 'success') continue // Skip already successful ones
@@ -135,30 +431,93 @@ const BulkStocksPage = () => {
         await new Promise(resolve => setTimeout(resolve, 200))
         
       } catch (error) {
-        console.error(`Error adding ${stock.symbol}:`, error)
-        let errorMessage = error instanceof Error ? error.message : 'Failed to add stock'
+        console.error(`Error adding ${stock.symbol} on ${stock.exchange}:`, error)
+        const originalError = error instanceof Error ? error.message : 'Failed to add stock'
         
-        // Provide helpful error message for stock not found
-        if (errorMessage.includes('not found')) {
-          errorMessage = `Stock ${stock.symbol} not found on ${stock.exchange}. Verify the symbol is correct and currently trading.`
-        } else if (stock.exchange === 'BSE' && errorMessage.includes('404')) {
-          errorMessage = `BSE stock ${stock.symbol}: Live data unavailable (KiteConnect limitation). Added as metadata only.`
+        // For CSV uploads, try fallback exchange on any failure since symbols might exist on either exchange
+        const shouldTryFallback = true // Always try fallback for CSV imports to maximize success rate
+        
+        console.log(`🔄 Will try fallback for ${stock.symbol}: ${shouldTryFallback}`)
+        
+        // Try the other exchange if the stock was not found
+        if (shouldTryFallback) {
+          const alternativeExchange = stock.exchange === 'NSE' ? 'BSE' : 'NSE'
+          
+          try {
+            console.log(`Trying ${stock.symbol} on alternative exchange: ${alternativeExchange}`)
+            
+            const alternativeStockData: AddStockForm = {
+              symbol: stock.symbol,
+              name: stock.name,
+              exchange: alternativeExchange,
+              tags: [...stock.tags, `fallback-${alternativeExchange.toLowerCase()}`]
+            }
+            
+            await addStockToFirebase(alternativeStockData)
+            
+            // Update the stock with the successful exchange
+            updateStock(stock.id, { 
+              status: 'success', 
+              exchange: alternativeExchange,
+              tags: alternativeStockData.tags
+            })
+            
+            console.log(`✅ Successfully added ${stock.symbol} on ${alternativeExchange} (fallback)`)
+            
+          } catch (alternativeError) {
+            console.error(`Error adding ${stock.symbol} on ${alternativeExchange}:`, alternativeError)
+            
+            // Both exchanges failed
+            const errorMessage = `Stock ${stock.symbol} not found on both NSE and BSE. Verify the symbol is correct and currently trading.`
+            updateStock(stock.id, { 
+              status: 'error', 
+              error: errorMessage
+            })
+            
+            // Add to failed symbols list
+            tempFailedSymbols.push({
+              symbol: stock.symbol,
+              name: stock.name,
+              error: errorMessage
+            })
+          }
+        } else {
+          // Other type of error (not "not found")
+          let finalErrorMessage = originalError
+          if (stock.exchange === 'BSE' && originalError.includes('404')) {
+            finalErrorMessage = `BSE stock ${stock.symbol}: Live data unavailable (KiteConnect limitation). Added as metadata only.`
+          }
+          
+          updateStock(stock.id, { 
+            status: 'error', 
+            error: finalErrorMessage
+          })
+          
+          // Add to failed symbols list
+          tempFailedSymbols.push({
+            symbol: stock.symbol,
+            name: stock.name,
+            error: finalErrorMessage
+          })
         }
-        
-        updateStock(stock.id, { 
-          status: 'error', 
-          error: errorMessage
-        })
       }
     }
     
     setIsProcessing(false)
+    
+    // Show failed symbols if any
+    if (tempFailedSymbols.length > 0) {
+      setFailedSymbols(tempFailedSymbols)
+      setShowFailedSymbols(true)
+    }
   }
 
   const clearAll = () => {
     setStocks([])
     setBulkText('')
     setBulkTags('')
+    setFailedSymbols([])
+    setShowFailedSymbols(false)
   }
 
   const getStatusIcon = (status: BulkStockEntry['status']) => {
@@ -216,7 +575,7 @@ const BulkStocksPage = () => {
       {/* Input Methods */}
       <div className="row g-4 mb-4">
         {/* Manual Input */}
-        <div className="col-lg-6">
+        <div className="col-lg-4">
           <div className="card h-100">
             <div className="card-header">
               <h5 className="card-title mb-0">✍️ Manual Entry</h5>
@@ -273,8 +632,198 @@ const BulkStocksPage = () => {
           </div>
         </div>
 
+        {/* CSV Upload */}
+        <div className="col-lg-4">
+          <div className="card h-100">
+            <div className="card-header">
+              <h5 className="card-title mb-0">📁 CSV File Upload</h5>
+            </div>
+            <div className="card-body">
+              <p className="text-muted mb-3">Upload a CSV file with stock data - choose to lookup symbols from company names or use symbols directly from your CSV</p>
+              
+              <div className="mb-3">
+                <label htmlFor="csvFileInput" className="form-label">Select CSV File</label>
+                <input
+                  id="csvFileInput"
+                  type="file"
+                  className="form-control"
+                  accept=".csv"
+                  onChange={handleCsvFileChange}
+                />
+                <small className="form-text text-muted">
+                  Upload CSV files with company names or stock symbols
+                </small>
+              </div>
+              
+              <div className="mb-3">
+                <label className="form-label">CSV Processing Mode</label>
+                <div className="d-flex gap-3">
+                  <div className="form-check">
+                    <input
+                      className="form-check-input"
+                      type="radio"
+                      name="csvMode"
+                      id="csvModeLookup"
+                      value="lookup"
+                      checked={csvMode === 'lookup'}
+                      onChange={(e) => setCsvMode(e.target.value as 'lookup' | 'direct')}
+                    />
+                    <label className="form-check-label" htmlFor="csvModeLookup">
+                      🔍 Lookup symbols from company names
+                    </label>
+                  </div>
+                  <div className="form-check">
+                    <input
+                      className="form-check-input"
+                      type="radio"
+                      name="csvMode"
+                      id="csvModeDirect"
+                      value="direct"
+                      checked={csvMode === 'direct'}
+                      onChange={(e) => setCsvMode(e.target.value as 'lookup' | 'direct')}
+                    />
+                    <label className="form-check-label" htmlFor="csvModeDirect">
+                      📋 Use symbols directly from CSV
+                    </label>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="row mb-3">
+                <div className="col-6">
+                  <label htmlFor="csvDelimiter" className="form-label">Delimiter</label>
+                  <select 
+                    id="csvDelimiter"
+                    className="form-select"
+                    value={csvDelimiter}
+                    onChange={(e) => setCsvDelimiter(e.target.value)}
+                  >
+                    <option value=",">Comma (,)</option>
+                    <option value=";">Semicolon (;)</option>
+                    <option value="\t">Tab</option>
+                    <option value="|">Pipe (|)</option>
+                  </select>
+                </div>
+                <div className="col-6">
+                  <label htmlFor="csvColumn" className="form-label">
+                    {csvMode === 'lookup' ? 'Company Name Column' : 'Symbol Column'}
+                  </label>
+                  <select 
+                    id="csvColumn"
+                    className="form-select"
+                    value={csvColumnNumber}
+                    onChange={(e) => setCsvColumnNumber(parseInt(e.target.value))}
+                  >
+                    <option value={1}>Column 1</option>
+                    <option value={2}>Column 2</option>
+                    <option value={3}>Column 3</option>
+                    <option value={4}>Column 4</option>
+                    <option value={5}>Column 5</option>
+                  </select>
+                </div>
+              </div>
+              
+              {csvMode === 'direct' && (
+                <div className="row mb-3">
+                  <div className="col-6">
+                    <label htmlFor="csvNameColumn" className="form-label">Company Name Column</label>
+                    <select 
+                      id="csvNameColumn"
+                      className="form-select"
+                      value={csvNameColumn}
+                      onChange={(e) => setCsvNameColumn(parseInt(e.target.value))}
+                    >
+                      <option value={1}>Column 1</option>
+                      <option value={2}>Column 2</option>
+                      <option value={3}>Column 3</option>
+                      <option value={4}>Column 4</option>
+                      <option value={5}>Column 5</option>
+                    </select>
+                  </div>
+                  <div className="col-6">
+                    <small className="text-muted">
+                      <strong>Direct Mode:</strong><br/>
+                      • Symbol Column: Column {csvColumnNumber}<br/>
+                      • Name Column: Column {csvNameColumn}<br/>
+                      No symbol lookup will be performed
+                    </small>
+                  </div>
+                </div>
+              )}
+              
+              {csvFile && (
+                <div className="mb-3">
+                  <div className="alert alert-info py-2">
+                    <small>
+                      <strong>📄 Selected:</strong> {csvFile.name}<br/>
+                      <strong>📊 Size:</strong> {(csvFile.size / 1024).toFixed(1)} KB
+                    </small>
+                  </div>
+                </div>
+              )}
+              
+              <div className="mb-3">
+                <label className="form-label">Exchange for CSV Stocks</label>
+                <select 
+                  className="form-select"
+                  value={selectedExchange}
+                  onChange={(e) => setSelectedExchange(e.target.value as 'NSE' | 'BSE')}
+                >
+                  <option value="NSE">NSE</option>
+                  <option value="BSE">BSE</option>
+                </select>
+              </div>
+              
+              <div className="mb-3">
+                <label className="form-label">CSV Tags (Optional)</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Enter tags separated by commas (e.g., csv-batch, portfolio-2024)"
+                  value={bulkTags}
+                  onChange={(e) => setBulkTags(e.target.value)}
+                />
+                <small className="form-text text-muted">
+                  These tags will be applied to all stocks from the CSV file
+                </small>
+              </div>
+              
+              <button 
+                className="btn btn-primary w-100"
+                onClick={processCsvFile}
+                disabled={!csvFile || csvProcessing}
+              >
+                {csvProcessing ? (
+                  <>
+                    <div className="spinner-border spinner-border-sm me-2" role="status">
+                      <span className="visually-hidden">Processing...</span>
+                    </div>
+                    Processing CSV...
+                  </>
+                ) : (
+                  '📁 Process CSV File'
+                )}
+              </button>
+              
+              <div className="mt-3">
+                <small className="text-muted">
+                  <strong>Flexible CSV Format:</strong><br/>
+                  • Choose your delimiter: comma, semicolon, tab, or pipe<br/>
+                  • Select processing mode: lookup or direct<br/>
+                  • Header rows are automatically skipped<br/>
+                  <br/>
+                  <strong>Examples:</strong><br/>
+                  <em>Lookup Mode:</em> Company Name Column → Symbol Lookup<br/>
+                  <em>Direct Mode:</em> Elegant Floricul,ELEFLOR (Name, Symbol)<br/>
+                  <em>Direct Mode:</em> INTECCAP,Intec Capital (Symbol, Name)
+                </small>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Quick Add */}
-        <div className="col-lg-6">
+        <div className="col-lg-4">
           <div className="card h-100">
             <div className="card-header">
               <h5 className="card-title mb-0">⚡ Quick Add Popular Stocks</h5>
@@ -316,6 +865,222 @@ const BulkStocksPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Lookup Results */}
+      {showLookupResults && lookupResults.length > 0 && (
+        <div className="card mb-4">
+          <div className="card-header d-flex justify-content-between align-items-center">
+            <h5 className="card-title mb-0">🔍 Stock Symbol Lookup Results</h5>
+            <button 
+              className="btn btn-sm btn-outline-secondary"
+              onClick={() => setShowLookupResults(false)}
+            >
+              ✕ Close
+            </button>
+          </div>
+          <div className="card-body">
+            <div className="table-responsive">
+              <table className="table table-sm">
+                <thead>
+                  <tr>
+                    <th>Line #</th>
+                    <th>Company Name</th>
+                    <th>Status</th>
+                    <th>Found Symbol</th>
+                    <th>Exchange</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lookupResults.map((result, index) => (
+                    <tr key={index} className={
+                      result.status === 'found' ? 'table-success' :
+                      result.status === 'not-found' ? 'table-warning' :
+                      result.status === 'multiple' ? 'table-info' : ''
+                    }>
+                      <td>{result.lineNumber}</td>
+                      <td>{result.companyName}</td>
+                      <td>
+                        {result.status === 'found' && <span className="badge bg-success">✅ Found</span>}
+                        {result.status === 'not-found' && <span className="badge bg-warning">⚠️ Not Found</span>}
+                        {result.status === 'multiple' && <span className="badge bg-info">🔢 Multiple Matches</span>}
+                        {result.status === 'both-exchanges' && <span className="badge bg-success">✅ Both NSE & BSE</span>}
+                      </td>
+                      <td>
+                        {result.status === 'both-exchanges' ? (
+                          <div>
+                            <small><strong>NSE:</strong> {result.nseSymbol}</small><br/>
+                            <small><strong>BSE:</strong> {result.bseSymbol}</small>
+                          </div>
+                        ) : (
+                          result.symbol || '-'
+                        )}
+                      </td>
+                      <td>
+                        {result.status === 'both-exchanges' ? (
+                          <div>
+                            <span className="badge bg-primary me-1">NSE</span>
+                            <span className="badge bg-warning">BSE</span>
+                          </div>
+                        ) : result.exchange ? (
+                          <span className={`badge ${result.exchange === 'NSE' ? 'bg-primary' : 'bg-warning'}`}>
+                            {result.exchange}
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td>
+                        {result.status === 'multiple' && result.candidates && (
+                          <div className="dropdown">
+                            <button className="btn btn-sm btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                              Select Symbol
+                            </button>
+                            <ul className="dropdown-menu">
+                              {result.candidates.map((candidate, cidx) => (
+                                <li key={cidx}>
+                                  <button 
+                                    className="dropdown-item"
+                                    onClick={() => addLookupResult(result, candidate.symbol, candidate.exchange)}
+                                  >
+                                    <strong>{candidate.symbol}</strong> ({candidate.exchange}) - {candidate.name}
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {result.status === 'found' && (
+                          <small className="text-success">✅ Added to queue</small>
+                        )}
+                        {result.status === 'both-exchanges' && (
+                          <small className="text-success">✅ Both NSE & BSE added to queue</small>
+                        )}
+                        {result.status === 'not-found' && (
+                          <small className="text-muted">Manual entry required</small>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="mt-3">
+              <div className="row">
+                <div className="col-md-3">
+                  <div className="card border-success">
+                    <div className="card-body text-center py-2">
+                      <span className="text-success">✅ Found: {lookupResults.filter(r => r.status === 'found').length}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="col-md-3">
+                  <div className="card border-success">
+                    <div className="card-body text-center py-2">
+                      <span className="text-success">✅ Both NSE & BSE: {lookupResults.filter(r => r.status === 'both-exchanges').length}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="col-md-3">
+                  <div className="card border-info">
+                    <div className="card-body text-center py-2">
+                      <span className="text-info">🔢 Multiple: {lookupResults.filter(r => r.status === 'multiple').length}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="col-md-3">
+                  <div className="card border-warning">
+                    <div className="card-body text-center py-2">
+                      <span className="text-warning">⚠️ Not Found: {lookupResults.filter(r => r.status === 'not-found').length}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Failed Symbols Summary */}
+      {showFailedSymbols && failedSymbols.length > 0 && (
+        <div className="card mb-4 border-danger">
+          <div className="card-header bg-danger text-white d-flex justify-content-between align-items-center">
+            <h5 className="card-title mb-0">❌ Failed Symbols ({failedSymbols.length})</h5>
+            <button 
+              className="btn btn-sm btn-outline-light"
+              onClick={() => setShowFailedSymbols(false)}
+            >
+              ✕ Close
+            </button>
+          </div>
+          <div className="card-body">
+            <p className="text-muted mb-3">
+              The following symbols could not be added after trying both NSE and BSE exchanges:
+            </p>
+            
+            <div className="table-responsive">
+              <table className="table table-sm table-striped">
+                <thead>
+                  <tr>
+                    <th>Symbol</th>
+                    <th>Company Name</th>
+                    <th>Error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {failedSymbols.map((failed, index) => (
+                    <tr key={index}>
+                      <td>
+                        <span className="badge bg-danger">{failed.symbol}</span>
+                      </td>
+                      <td>{failed.name}</td>
+                      <td>
+                        <small className="text-muted">{failed.error}</small>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="mt-3 d-flex gap-3">
+              <div className="flex-grow-1">
+                <div className="alert alert-warning mb-0">
+                  <strong>💡 Suggestions for failed symbols:</strong>
+                  <ul className="mb-0 mt-2">
+                    <li>Check if the symbol names are correct and currently trading</li>
+                    <li>Some symbols might use different formats (e.g., numerical codes for BSE)</li>
+                    <li>Try manually searching for these companies on NSE/BSE websites</li>
+                    <li>Consider if these might be delisted or merged companies</li>
+                  </ul>
+                </div>
+              </div>
+              <div className="d-flex flex-column gap-2">
+                <button 
+                  className="btn btn-outline-primary btn-sm"
+                  onClick={() => {
+                    // Convert failed symbols back to bulk text format for manual editing
+                    const failedText = failedSymbols.map(f => `${f.name},${f.symbol}`).join('\n')
+                    setBulkText(failedText)
+                    setShowFailedSymbols(false)
+                  }}
+                >
+                  📝 Edit Failed Symbols
+                </button>
+                <button 
+                  className="btn btn-outline-secondary btn-sm"
+                  onClick={() => {
+                    const failedList = failedSymbols.map(f => f.symbol).join(', ')
+                    navigator.clipboard.writeText(failedList)
+                    alert('Failed symbols copied to clipboard!')
+                  }}
+                >
+                  📋 Copy Symbols
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stock Queue */}
       {stocks.length > 0 && (
@@ -422,7 +1187,14 @@ const BulkStocksPage = () => {
                       
                       {stock.status === 'success' && (
                         <div className="mt-2">
-                          <small className="text-success">✅ Successfully added!</small>
+                          <small className="text-success">
+                            ✅ Successfully added!
+                            {stock.tags?.some(tag => tag.startsWith('fallback-')) && (
+                              <span className="badge bg-info ms-1 text-dark" style={{ fontSize: '0.7em' }}>
+                                📋 Fallback Exchange
+                              </span>
+                            )}
+                          </small>
                         </div>
                       )}
                       
@@ -455,6 +1227,30 @@ const BulkStocksPage = () => {
                     <li><strong>With name:</strong> RELIANCE, Reliance Industries Ltd</li>
                     <li><strong>Multiple formats:</strong> Tab or comma separated</li>
                     <li>One stock per line</li>
+                  </ul>
+                  
+                  <h6>📁 CSV File Upload (Two Modes):</h6>
+                  <ul className="small">
+                    <li><strong>Flexible delimiters:</strong> Comma, semicolon, tab, or pipe</li>
+                    <li><strong>Header row:</strong> Automatically detected and skipped</li>
+                  </ul>
+                  
+                  <h6>🔍 Lookup Mode:</h6>
+                  <ul className="small">
+                    <li><strong>Column selection:</strong> Choose which column contains company names</li>
+                    <li><strong>Smart lookup:</strong> Automatically finds stock symbols for company names</li>
+                    <li><strong>Both exchanges:</strong> Automatically adds both NSE and BSE symbols when available</li>
+                    <li><strong>Multiple matches:</strong> Shows dropdown to select correct symbol</li>
+                    <li><strong>Examples:</strong> 1,Reliance Industries | Tata Consultancy Services</li>
+                  </ul>
+                  
+                  <h6>📋 Direct Mode:</h6>
+                  <ul className="small">
+                    <li><strong>Symbol column:</strong> Column containing stock symbols (e.g., ELEFLOR, INTECCAP)</li>
+                    <li><strong>Name column:</strong> Column containing company names</li>
+                    <li><strong>No lookup:</strong> Uses symbols directly from your CSV file</li>
+                    <li><strong>Auto fallback:</strong> If NSE fails, automatically tries BSE (and vice versa)</li>
+                    <li><strong>Examples:</strong> Elegant Floricul,ELEFLOR | INTECCAP,Intec Capital</li>
                   </ul>
                   
                   <h6>🏢 Common BSE Stock Symbols:</h6>
@@ -498,6 +1294,14 @@ const BulkStocksPage = () => {
                     <li><strong>Existing stocks:</strong> Only new tags are added</li>
                     <li><strong>No duplicates:</strong> Same stock won't be added twice</li>
                     <li><strong>Tag merging:</strong> Existing tags are preserved</li>
+                  </ul>
+                  
+                  <h6>🔄 Auto Exchange Fallback:</h6>
+                  <ul className="small">
+                    <li><strong>Smart retry:</strong> If NSE fails, automatically tries BSE</li>
+                    <li><strong>Maximized success:</strong> Works for symbols that exist on either exchange</li>
+                    <li><strong>Visual indicator:</strong> Shows "Fallback Exchange" badge when used</li>
+                    <li><strong>Automatic tagging:</strong> Adds fallback tag to distinguish the source</li>
                   </ul>
                 </div>
               </div>
