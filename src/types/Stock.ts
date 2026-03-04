@@ -81,3 +81,13 @@ export interface StockAPIResponse {
   fiftyTwoWeekHigh: number;
   fiftyTwoWeekLow: number;
 }
+
+// Historical data types
+export interface HistoricalDataPoint {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  date: string;
+}

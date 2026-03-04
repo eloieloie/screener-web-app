@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { getHistoricalData } from '../services/stockService'
+import type { HistoricalDataPoint } from '../types/Stock'
 import KiteConnectAPI from '../services/KiteConnectAPI'
 
 interface EnhancedChartProps {
@@ -9,6 +11,8 @@ interface EnhancedChartProps {
   duration: '1month' | '6months' | '1year' | '3years' | '5years'
   onError?: (symbol: string, hasError: boolean, errorMessage?: string) => void
   onRefreshReady?: (symbol: string, refreshFn: () => void) => void
+  liveDataEnabled?: boolean
+  exchange?: 'NSE' | 'BSE'
 }
 
 const kiteAPI = KiteConnectAPI.getInstance()
@@ -68,7 +72,17 @@ const DURATION_CONFIG = {
   '5years': { days: 1825, label: '5Y', interval: 'day' }
 } as const
 
-function EnhancedChart({ symbol, width = 400, height = 250, className = "", duration, onError, onRefreshReady }: EnhancedChartProps) {
+function EnhancedChart({ 
+  symbol, 
+  width = 400, 
+  height = 250, 
+  className = "", 
+  duration, 
+  onError, 
+  onRefreshReady,
+  liveDataEnabled = false,
+  exchange = 'NSE'
+}: EnhancedChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -100,34 +114,54 @@ function EnhancedChart({ symbol, width = 400, height = 250, className = "", dura
     }
 
     const fetchHistoricalData = async () => {
+      console.log(`📊 ENHANCED CHART - fetchHistoricalData called for:`, {
+        symbol,
+        exchange,
+        duration,
+        liveDataEnabled,
+        width,
+        height
+      });
+      
       try {
-        if (!kiteAPI.isReady()) {
-          console.warn('Authentication required for historical data, using sample data')
-          return generateSampleData()
-        }
-        
-        const toDate = new Date()
-        const fromDate = new Date(toDate.getTime() - config.days * 24 * 60 * 60 * 1000)
-        
-        console.log(`Fetching historical data for ${symbol} (${duration})...`)
-        const historicalData = await kiteAPI.getHistoricalData(symbol, fromDate, toDate, 'day')
+        // Use cached data service with live data toggle
+        console.log(`🔄 CALLING getHistoricalData service...`);
+        const historicalData = await getHistoricalData(symbol, exchange, duration, liveDataEnabled);
         
         if (historicalData && historicalData.length > 0) {
-          console.log(`Successfully fetched ${historicalData.length} data points for ${symbol}`)
-          return historicalData.map(point => point.close)
+          console.log(`✅ CHART DATA LOADED:`, {
+            symbol,
+            duration,
+            dataSource: liveDataEnabled ? 'live' : 'cached',
+            dataPoints: historicalData.length,
+            firstPoint: historicalData[0],
+            lastPoint: historicalData[historicalData.length - 1]
+          });
+          
+          const closePrices = historicalData.map((point: HistoricalDataPoint) => point.close);
+          console.log(`📈 PROCESSED CLOSE PRICES:`, {
+            symbol,
+            closePricesCount: closePrices.length,
+            minPrice: Math.min(...closePrices),
+            maxPrice: Math.max(...closePrices),
+            firstPrice: closePrices[0],
+            lastPrice: closePrices[closePrices.length - 1]
+          });
+          
+          return closePrices;
         } else {
-          console.warn(`No historical data available for ${symbol}, using sample data`)
-          return generateSampleData()
+          console.warn(`⚠️ NO HISTORICAL DATA for ${symbol} - using sample data`);
+          return generateSampleData();
         }
       } catch (error) {
-        console.error(`Failed to fetch historical data for ${symbol}:`, error)
-        setError('Failed to load fresh data')
+        console.error(`❌ CHART ERROR for ${symbol}:`, error);
+        setError('Failed to load fresh data');
         
         // Notify parent about specific error
         if (onError) {
-          onError(symbol, true, 'Failed to load fresh data')
+          onError(symbol, true, 'Failed to load fresh data');
         }
-        return generateSampleData()
+        return generateSampleData();
       }
     }
 
@@ -281,7 +315,7 @@ function EnhancedChart({ symbol, width = 400, height = 250, className = "", dura
       canvas.dataset.periodHigh = periodHigh.toFixed(2)
       canvas.dataset.changeFromHighPercent = `${changeFromHighPercent.toFixed(2)}%`
     }
-  }, [symbol, width, height, duration, onError])
+  }, [symbol, width, height, duration, onError, exchange, liveDataEnabled])
 
   // Register refresh function with parent (separate effect)
   useEffect(() => {
@@ -326,14 +360,14 @@ function EnhancedChart({ symbol, width = 400, height = 250, className = "", dura
       }
     }
 
-    // Only draw chart on initial mount or when symbol/duration changes
+    // Only draw chart on initial mount or when symbol/duration/liveDataEnabled changes
     drawChart()
     
     return () => {
       isMounted = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbol, duration]) // Only these dependencies to prevent auto-refresh
+  }, [symbol, duration, liveDataEnabled]) // These dependencies control when chart refreshes
 
   const handleRefresh = async () => {
     setIsLoading(true)
@@ -459,11 +493,19 @@ function EnhancedChart({ symbol, width = 400, height = 250, className = "", dura
             aspectRatio: `${width}/${height}`
           }}
         />
-        {!kiteAPI.isReady() && (
+        {!kiteAPI.isReady() && !liveDataEnabled && (
           <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-light bg-opacity-75 rounded">
             <div className="text-center">
-              <div className="text-muted small">📊 Sample Chart Data</div>
-              <div className="text-muted small">Login for live historical data</div>
+              <div className="text-muted small">� Cached Chart Data</div>
+              <div className="text-muted small">Enable Live Data for fresh API data</div>
+            </div>
+          </div>
+        )}
+        {!kiteAPI.isReady() && liveDataEnabled && (
+          <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-warning bg-opacity-75 rounded">
+            <div className="text-center">
+              <div className="text-muted small">⚠️ API Not Available</div>
+              <div className="text-muted small">Login required for live data</div>
             </div>
           </div>
         )}

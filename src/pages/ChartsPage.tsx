@@ -17,6 +17,7 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
   const [selectedDuration, setSelectedDuration] = useState<Duration>('6months')
   const [failedCharts, setFailedCharts] = useState<Set<string>>(new Set())
   const [refreshingCharts, setRefreshingCharts] = useState<Set<string>>(new Set())
+  const [liveDataEnabled, setLiveDataEnabled] = useState(false)
   const chartRefs = useRef<Map<string, { hasError: boolean, refresh: () => void }>>(new Map())
 
   const durationOptions = [
@@ -168,6 +169,27 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
           </p>
         </div>
         <div className="d-flex align-items-center gap-3">
+          {/* Live Data Toggle */}
+          <div className="form-check form-switch">
+            <input 
+              className="form-check-input" 
+              type="checkbox" 
+              id="liveDataToggle"
+              checked={liveDataEnabled}
+              onChange={(e) => {
+                const newValue = e.target.checked;
+                console.log(`🔄 LIVE DATA TOGGLE CHANGED:`, {
+                  from: liveDataEnabled,
+                  to: newValue,
+                  stocksToRefresh: filteredStocks.length
+                });
+                setLiveDataEnabled(newValue);
+              }}
+            />
+            <label className="form-check-label" htmlFor="liveDataToggle">
+              {liveDataEnabled ? '📡 Live Data' : '💾 Cached Data'}
+            </label>
+          </div>
           {failedCharts.size > 0 && (
             <button
               className="btn btn-warning btn-sm"
@@ -277,6 +299,8 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
                   className="w-100"
                   onError={handleChartError}
                   onRefreshReady={registerChartRef}
+                  liveDataEnabled={liveDataEnabled}
+                  exchange={stock.exchange}
                 />
               </div>
             </div>
@@ -290,8 +314,9 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
           <div className="card border-0 bg-light">
             <div className="card-body text-center py-3">
               <small className="text-muted">
-                📊 Charts load once on page load with sample data when not authenticated • 
-                🔄 Charts do NOT auto-refresh - use "Refresh Failed Charts" button for manual updates • 
+                📊 Charts use {liveDataEnabled ? 'live API data' : 'cached Firebase data (updated daily)'} • 
+                🔄 Toggle "Live Data" to fetch fresh data from KiteConnect API • 
+                💾 Cached data persists for 24 hours to improve performance and reduce API calls •
                 💡 Individual chart refresh buttons (🔄) available for targeted updates
               </small>
             </div>

@@ -11,16 +11,221 @@ import {
   Timestamp,
   where,
   updateDoc,
-  arrayUnion 
+  arrayUnion,
+  setDoc 
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import type { Stock, AddStockForm } from '../types/Stock';
+import type { Stock, AddStockForm, HistoricalDataPoint } from '../types/Stock';
 import KiteConnectAPI from './KiteConnectAPI';
 
 const STOCKS_COLLECTION = 'stocks';
+const HISTORICAL_DATA_COLLECTION = 'historicalData';
 
 // Create KiteConnect API instance
 const kiteAPI = KiteConnectAPI.getInstance();
+
+// Cached historical data interface
+interface CachedHistoricalData {
+  symbol: string;
+  exchange: string;
+  duration: string;
+  data: HistoricalDataPoint[];
+  cachedAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+// Cache duration in milliseconds (24 hours for historical data)
+const HISTORICAL_CACHE_DURATION = 24 * 60 * 60 * 1000;
+
+// Historical data caching functions
+const getHistoricalDataCacheKey = (symbol: string, exchange: string, duration: string): string => {
+  return `${symbol}_${exchange}_${duration}`;
+};
+
+// Save historical data to Firebase cache
+const saveHistoricalDataToCache = async (
+  symbol: string,
+  exchange: string,
+  duration: string,
+  data: HistoricalDataPoint[]
+): Promise<void> => {
+  try {
+    const cacheKey = getHistoricalDataCacheKey(symbol, exchange, duration);
+    const docRef = doc(db, HISTORICAL_DATA_COLLECTION, cacheKey);
+    
+    console.log(`🔄 SAVING HISTORICAL DATA TO CACHE:`, {
+      symbol,
+      exchange,
+      duration,
+      cacheKey,
+      dataPoints: data.length,
+      firstPoint: data[0],
+      lastPoint: data[data.length - 1]
+    });
+    
+    const cachedData: CachedHistoricalData = {
+      symbol,
+      exchange,
+      duration,
+      data,
+      cachedAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
+    };
+    
+    await setDoc(docRef, cachedData);
+    console.log(`✅ SUCCESSFULLY CACHED historical data for ${symbol} (${duration}) - ${data.length} points`);
+  } catch (error) {
+    console.error('❌ ERROR saving historical data to cache:', error);
+  }
+};
+
+// Get historical data from Firebase cache
+const getHistoricalDataFromCache = async (
+  symbol: string,
+  exchange: string,
+  duration: string
+): Promise<HistoricalDataPoint[] | null> => {
+  try {
+    const cacheKey = getHistoricalDataCacheKey(symbol, exchange, duration);
+    const docRef = doc(db, HISTORICAL_DATA_COLLECTION, cacheKey);
+    
+    console.log(`🔍 CHECKING CACHE FOR:`, {
+      symbol,
+      exchange,
+      duration,
+      cacheKey
+    });
+    
+    const docSnapshot = await getDoc(docRef);
+    
+    if (!docSnapshot.exists()) {
+      console.log(`❌ NO CACHE FOUND for ${symbol} (${duration})`);
+      return null;
+    }
+    
+    const cachedData = docSnapshot.data() as CachedHistoricalData;
+    const now = Date.now();
+    const cachedAt = cachedData.cachedAt.toMillis();
+    const ageHours = (now - cachedAt) / (1000 * 60 * 60);
+    
+    console.log(`📊 CACHE FOUND:`, {
+      symbol,
+      duration,
+      cachedAt: new Date(cachedAt),
+      ageHours: ageHours.toFixed(2),
+      dataPoints: cachedData.data.length,
+      isExpired: now - cachedAt > HISTORICAL_CACHE_DURATION
+    });
+    
+    // Check if cache is still valid (within 24 hours)
+    if (now - cachedAt > HISTORICAL_CACHE_DURATION) {
+      console.log(`⏰ CACHE EXPIRED for ${symbol} (${duration}) - age: ${ageHours.toFixed(2)} hours`);
+      return null;
+    }
+    
+    console.log(`✅ USING CACHED DATA for ${symbol} (${duration}) - ${cachedData.data.length} points`);
+    return cachedData.data;
+  } catch (error) {
+    console.error('❌ ERROR getting historical data from cache:', error);
+    return null;
+  }
+};
+
+// Get historical data with caching (main function to be used by components)
+export const getHistoricalData = async (
+  symbol: string,
+  exchange: string,
+  duration: string,
+  forceRefresh: boolean = false
+): Promise<HistoricalDataPoint[]> => {
+  console.log(`🚀 GET HISTORICAL DATA CALLED:`, {
+    symbol,
+    exchange,
+    duration,
+    forceRefresh,
+    apiReady: kiteAPI.isReady()
+  });
+
+  try {
+    // If not forcing refresh, try to get from cache first
+    if (!forceRefresh) {
+      console.log(`💾 ATTEMPTING CACHE LOOKUP (not forcing refresh)`);
+      const cachedData = await getHistoricalDataFromCache(symbol, exchange, duration);
+      if (cachedData) {
+        console.log(`✅ RETURNING CACHED DATA - ${cachedData.length} points`);
+        return cachedData;
+      }
+    } else {
+      console.log(`🔄 FORCING REFRESH - skipping cache lookup`);
+    }
+    
+    // Cache miss or force refresh - fetch from API
+    if (!kiteAPI.isReady()) {
+      console.warn('⚠️ API NOT AUTHENTICATED - cannot fetch fresh historical data');
+      // Return cached data even if expired, or empty array
+      const expiredCache = await getHistoricalDataFromCache(symbol, exchange, duration);
+      if (expiredCache) {
+        console.log(`📊 RETURNING EXPIRED CACHE as fallback - ${expiredCache.length} points`);
+        return expiredCache;
+      }
+      console.log(`❌ NO CACHE AVAILABLE - returning empty array`);
+      return [];
+    }
+    
+    // Calculate date range based on duration
+    const toDate = new Date();
+    const durationMap: Record<string, number> = {
+      '1month': 30,
+      '6months': 180,
+      '1year': 365,
+      '3years': 1095,
+      '5years': 1825
+    };
+    
+    const days = durationMap[duration] || 365;
+    const fromDate = new Date(toDate.getTime() - days * 24 * 60 * 60 * 1000);
+    
+    console.log(`🌐 FETCHING FRESH DATA FROM API:`, {
+      symbol,
+      duration,
+      fromDate: fromDate.toISOString(),
+      toDate: toDate.toISOString(),
+      days
+    });
+    
+    const freshData = await kiteAPI.getHistoricalData(symbol, fromDate, toDate, 'day');
+    
+    if (freshData && freshData.length > 0) {
+      console.log(`✅ API RETURNED FRESH DATA - ${freshData.length} points`);
+      // Save to cache for future use
+      await saveHistoricalDataToCache(symbol, exchange, duration, freshData);
+      return freshData;
+    }
+    
+    console.log(`⚠️ API RETURNED NO DATA - trying expired cache`);
+    // API returned no data, try to return expired cache or empty array
+    const expiredCache = await getHistoricalDataFromCache(symbol, exchange, duration);
+    if (expiredCache) {
+      console.log(`📊 RETURNING EXPIRED CACHE as fallback - ${expiredCache.length} points`);
+      return expiredCache;
+    }
+    console.log(`❌ NO FALLBACK AVAILABLE - returning empty array`);
+    return [];
+    
+  } catch (error) {
+    console.error(`❌ ERROR getting historical data for ${symbol}:`, error);
+    
+    // On error, try to return cached data (even if expired)
+    console.log(`🔄 ATTEMPTING FALLBACK TO CACHE after error`);
+    const fallbackCache = await getHistoricalDataFromCache(symbol, exchange, duration);
+    if (fallbackCache) {
+      console.log(`📊 RETURNING CACHE as error fallback - ${fallbackCache.length} points`);
+      return fallbackCache;
+    }
+    console.log(`❌ NO FALLBACK AVAILABLE - returning empty array after error`);
+    return [];
+  }
+};
 
 // Helper function to find existing stock by symbol and exchange
 const findExistingStock = async (symbol: string, exchange: string): Promise<{ id: string; tags: string[] } | null> => {
@@ -500,5 +705,61 @@ export const getPopularStocks = async (limit: number = 20): Promise<Stock[]> => 
   } catch (error) {
     console.error('Error getting popular stocks:', error);
     return [];
+  }
+};
+
+// Clear expired historical data cache
+export const clearExpiredHistoricalCache = async (): Promise<number> => {
+  try {
+    console.log('Checking for expired historical data cache...');
+    
+    const querySnapshot = await getDocs(collection(db, HISTORICAL_DATA_COLLECTION));
+    const now = Date.now();
+    let deletedCount = 0;
+    
+    const deletePromises: Promise<void>[] = [];
+    
+    querySnapshot.forEach((docSnapshot) => {
+      const data = docSnapshot.data() as CachedHistoricalData;
+      const cachedAt = data.cachedAt.toMillis();
+      
+      // Check if cache is expired (older than 24 hours)
+      if (now - cachedAt > HISTORICAL_CACHE_DURATION) {
+        console.log(`Deleting expired cache for ${data.symbol} (${data.duration})`);
+        deletePromises.push(deleteDoc(doc(db, HISTORICAL_DATA_COLLECTION, docSnapshot.id)));
+        deletedCount++;
+      }
+    });
+    
+    if (deletePromises.length > 0) {
+      await Promise.all(deletePromises);
+      console.log(`Cleared ${deletedCount} expired historical data cache entries`);
+    } else {
+      console.log('No expired cache entries found');
+    }
+    
+    return deletedCount;
+  } catch (error) {
+    console.error('Error clearing expired historical cache:', error);
+    return 0;
+  }
+};
+
+// Refresh all cached historical data for a specific stock
+export const refreshAllHistoricalDataForStock = async (
+  symbol: string, 
+  exchange: string
+): Promise<void> => {
+  try {
+    const durations = ['1month', '6months', '1year', '3years', '5years'];
+    const refreshPromises = durations.map(duration => 
+      getHistoricalData(symbol, exchange, duration, true) // Force refresh
+    );
+    
+    await Promise.all(refreshPromises);
+    console.log(`Refreshed all historical data for ${symbol}`);
+  } catch (error) {
+    console.error(`Error refreshing historical data for ${symbol}:`, error);
+    throw error;
   }
 };
