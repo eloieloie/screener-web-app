@@ -3,6 +3,9 @@ import type { Stock } from '../types/Stock'
 import EnhancedChart from '../components/EnhancedChart'
 import { subscribeToStocks } from '../services/stockService'
 
+const BATCH_SIZE = 10
+const BATCH_DELAY_MS = 5000
+
 type Duration = '1month' | '6months' | '1year' | '3years' | '5years'
 
 interface ChartsPageProps {
@@ -19,6 +22,11 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
   const [refreshingCharts, setRefreshingCharts] = useState<Set<string>>(new Set())
   const [liveDataEnabled, setLiveDataEnabled] = useState(false)
   const chartRefs = useRef<Map<string, { hasError: boolean, refresh: () => void }>>(new Map())
+
+  // Batch activation: track which stock IDs are allowed to load
+  const [enabledStocks, setEnabledStocks] = useState<Set<string>>(new Set())
+  const [batchInfo, setBatchInfo] = useState<{ current: number; total: number } | null>(null)
+  const batchTimers = useRef<ReturnType<typeof setTimeout>[]>([])
 
   const durationOptions = [
     { value: '1month', label: '1 Month', icon: '📅' },
@@ -58,6 +66,53 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
       stock.tags && stock.tags.includes(selectedTag)
     )
   }, [stocks, selectedTag])
+
+  // Stable key for the current set of filtered stocks (avoids re-firing on price-only updates)
+  const filteredStockKey = useMemo(
+    () => filteredStocks.map(s => s.id).join(','),
+    [filteredStocks]
+  )
+
+  // Batch-activate charts: enable BATCH_SIZE charts every BATCH_DELAY_MS ms
+  useEffect(() => {
+    // Clear any pending batch timers from a previous run
+    batchTimers.current.forEach(clearTimeout)
+    batchTimers.current = []
+
+    if (filteredStocks.length === 0) {
+      setEnabledStocks(new Set())
+      setBatchInfo(null)
+      return
+    }
+
+    const totalBatches = Math.ceil(filteredStocks.length / BATCH_SIZE)
+    setBatchInfo({ current: 0, total: totalBatches })
+    setEnabledStocks(new Set()) // reset on list change
+
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const start = batchIndex * BATCH_SIZE
+      const end = Math.min(start + BATCH_SIZE, filteredStocks.length)
+      const batchIds = filteredStocks.slice(start, end).map(s => s.id)
+      const delay = batchIndex * BATCH_DELAY_MS
+
+      const timer = setTimeout(() => {
+        setEnabledStocks(prev => {
+          const next = new Set(prev)
+          batchIds.forEach(id => next.add(id))
+          return next
+        })
+        setBatchInfo({ current: batchIndex + 1, total: totalBatches })
+      }, delay)
+
+      batchTimers.current.push(timer)
+    }
+
+    return () => {
+      batchTimers.current.forEach(clearTimeout)
+      batchTimers.current = []
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredStockKey])
 
   // Handle chart error reporting (only for "Failed to load fresh data" errors)
   const handleChartError = (symbol: string, hasError: boolean, errorMessage?: string) => {
@@ -285,6 +340,31 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
         </div>
       </div>
 
+      {/* Batch loading progress */}
+      {batchInfo && batchInfo.current < batchInfo.total && (
+        <div className="alert alert-info d-flex align-items-center gap-3 mb-4 py-2">
+          <div className="spinner-border spinner-border-sm text-info flex-shrink-0" role="status">
+            <span className="visually-hidden">Loading…</span>
+          </div>
+          <div className="flex-grow-1">
+            <strong>Loading charts in batches</strong>
+            <span className="ms-2 text-muted">
+              Batch {batchInfo.current + 1} of {batchInfo.total} — 
+              {' '}{enabledStocks.size} of {filteredStocks.length} charts active, 
+              {' '}{filteredStocks.length - enabledStocks.size} queued
+              {batchInfo.current < batchInfo.total - 1 && ` (next batch in ${BATCH_DELAY_MS / 1000}s)`}
+            </span>
+          </div>
+          <div className="progress flex-shrink-0" style={{ width: '120px', height: '6px' }}>
+            <div
+              className="progress-bar"
+              role="progressbar"
+              style={{ width: `${(enabledStocks.size / filteredStocks.length) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Charts Grid */}
       <div className="d-flex flex-wrap gap-4">
         {filteredStocks.map((stock) => (
@@ -301,6 +381,7 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
                   onRefreshReady={registerChartRef}
                   liveDataEnabled={liveDataEnabled}
                   exchange={stock.exchange}
+                  enabled={enabledStocks.has(stock.id)}
                 />
               </div>
             </div>

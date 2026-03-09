@@ -129,10 +129,9 @@ if ping -c 1 mac.eloi.in >/dev/null 2>&1; then
     echo -e "${GREEN}🌐 External domain mac.eloi.in is reachable${NC}"
     
     test_endpoint "https://mac.eloi.in:$BACKEND_HTTPS_PORT/health" "External HTTPS Backend" "status"
-    test_endpoint "http://mac.eloi.in:$BACKEND_HTTP_PORT/health" "External HTTP Backend" "status"
     
     # Test frontend if port 443 is forwarded
-    if test_endpoint "https://mac.eloi.in/" "External Frontend" "<!DOCTYPE html" 2>/dev/null; then
+    if test_endpoint "https://mac.eloi.in:8443/" "External Frontend" "<!DOCTYPE html" 2>/dev/null; then
         echo -e "${GREEN}✅ External frontend is accessible${NC}"
     else
         echo -e "${YELLOW}⚠️  External frontend not accessible (check port 443 forwarding)${NC}"
@@ -149,7 +148,7 @@ echo -e "${GREEN}✅ Backend HTTPS: https://localhost:$BACKEND_HTTPS_PORT${NC}"
 echo -e "${GREEN}✅ Frontend HTTPS: https://localhost:$FRONTEND_PORT${NC}"
 echo ""
 echo -e "${BLUE}🌐 External URLs (requires port forwarding):${NC}"
-echo -e "${YELLOW}   Frontend:      https://mac.eloi.in/${NC}"
+echo -e "${YELLOW}   Frontend:      https://mac.eloi.in:8443/ (router: ext 8443 → int $FRONTEND_PORT)${NC}"
 echo -e "${YELLOW}   Backend HTTPS: https://mac.eloi.in:$BACKEND_HTTPS_PORT/${NC}"
 echo -e "${YELLOW}   Backend HTTP:  http://mac.eloi.in:$BACKEND_HTTP_PORT/${NC}"
 echo ""

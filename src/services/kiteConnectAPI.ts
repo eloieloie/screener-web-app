@@ -12,6 +12,7 @@ interface HistoricalDataPoint {
 interface AuthResponse {
   success: boolean;
   message: string;
+  access_token?: string;   // returned by backend so frontend can use Bearer auth
   sessionToken?: string;
   user?: {
     user_id: string;
@@ -55,8 +56,15 @@ class KiteConnectAPI {
   private sessionToken: string | null = null;
 
   constructor() {
-    // Use backend through public domain with port forwarding
-    this.backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://mac.eloi.in:3001';
+    // Use Vite proxy (relative URLs) so requests stay same-origin — no CORS needed.
+    // The proxy forwards /auth and /api to localhost:3001 on the server side.
+    this.backendUrl = '';
+    // Restore token from sessionStorage if it was saved in a previous page load
+    const saved = sessionStorage.getItem('kite_access_token');
+    if (saved) {
+      this.sessionToken = saved;
+      console.log('🔑 Restored access token from sessionStorage');
+    }
   }
 
   /**
@@ -75,17 +83,26 @@ class KiteConnectAPI {
   private async makeRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const url = `${this.backendUrl}${endpoint}`;
     
-    const defaultOptions: RequestInit = {
-      credentials: 'include', // Include cookies for session
-      headers: {
-        'Content-Type': 'application/json',
-        // Include session token if available
-        ...(this.sessionToken && { 'Authorization': `Bearer ${this.sessionToken}` }),
-        ...options.headers,
-      },
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (this.sessionToken) {
+      headers['Authorization'] = `Bearer ${this.sessionToken}`;
+    }
+    // Merge any caller-provided headers
+    if (options.headers) {
+      Object.assign(headers, options.headers);
+    }
+
+    console.log(`[makeRequest] ${options.method || 'GET'} ${endpoint} | token=${this.sessionToken ? this.sessionToken.slice(0,8)+'...' : 'NONE'} | auth-header=${!!headers['Authorization']}`);
+
+    const fetchOptions: RequestInit = {
+      credentials: 'include',
+      ...options,
+      headers,
     };
 
-    const response = await fetch(url, { ...defaultOptions, ...options });
+    const response = await fetch(url, fetchOptions);
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Network error' }));
@@ -120,33 +137,20 @@ class KiteConnectAPI {
       });
 
       if (response.success) {
-        // Store session token if provided (future enhancement)
-        if (response.sessionToken) {
-          this.sessionToken = response.sessionToken;
+        // Store the access_token for Bearer auth on all subsequent requests.
+        // This bypasses the session-cookie-through-Vite-proxy issue entirely.
+        const token = response.access_token || response.sessionToken || null;
+        if (token) {
+          this.sessionToken = token;
+          sessionStorage.setItem('kite_access_token', token);
+          console.log('🔑 Access token saved — will use Bearer auth for API calls');
         }
         
-        // Set authentication state optimistically
+        // Set authentication state
         this.isAuthenticated = true;
         this.userInfo = response.user || null;
         console.log('✅ Zerodha authentication successful:', response.user?.user_name);
-        
-        // Try to verify session, but don't fail if verification doesn't work
-        try {
-          await this.checkAuthStatus();
-          if (this.isAuthenticated) {
-            console.log('✅ Session verification successful');
-          } else {
-            console.log('⚠️ Session verification failed, proceeding with optimistic authentication');
-            // Reset to authenticated state since the session creation succeeded
-            this.isAuthenticated = true;
-            this.userInfo = response.user || null;
-          }
-        } catch {
-          console.log('⚠️ Session verification failed, proceeding with optimistic authentication');
-          // Keep the authenticated state since session creation succeeded
-          this.isAuthenticated = true;
-          this.userInfo = response.user || null;
-        }
+        // No need to verify with checkAuthStatus — the Bearer token is immediately valid
       } else {
         throw new Error(response.message || 'Authentication failed');
       }
@@ -156,6 +160,7 @@ class KiteConnectAPI {
       this.isAuthenticated = false;
       this.userInfo = null;
       this.sessionToken = null;
+      sessionStorage.removeItem('kite_access_token');
       throw error;
     }
   }
@@ -188,6 +193,7 @@ class KiteConnectAPI {
       this.isAuthenticated = false;
       this.userInfo = null;
       this.sessionToken = null;
+      sessionStorage.removeItem('kite_access_token');
       console.log('✅ KiteConnect: Logged out successfully');
     } catch (error) {
       console.error('Logout failed:', error);
@@ -195,6 +201,7 @@ class KiteConnectAPI {
       this.isAuthenticated = false;
       this.userInfo = null;
       this.sessionToken = null;
+      sessionStorage.removeItem('kite_access_token');
       throw error;
     }
   }

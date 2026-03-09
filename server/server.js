@@ -11,6 +11,7 @@ dotenv.config();
 
 // Initialize Express app
 const app = express();
+app.set('trust proxy', 1); // Trust Vite dev proxy — allows req.secure to be true and secure cookies to work
 const PORT = process.env.PORT || 3001;
 
 // Session store
@@ -34,7 +35,7 @@ if (KITE_API_KEY && KITE_API_SECRET) {
 
 // Middleware setup
 app.use(cors({
-  origin: ['http://localhost:5174', 'http://localhost:5173', 'http://localhost:3000', 'http://el-mac.ddns.net', 'https://el-mac.ddns.net', 'https://mac.eloi.in', 'http://mac.eloi.in', 'https://mac.eloi.in:5174', 'http://mac.eloi.in:5174'],
+  origin: ['http://localhost:5174', 'http://localhost:5173', 'http://localhost:3000', 'http://el-mac.ddns.net', 'https://el-mac.ddns.net', 'https://mac.eloi.in', 'http://mac.eloi.in', 'https://mac.eloi.in:5174', 'http://mac.eloi.in:5174', 'https://mac-scr.eloi.in', 'https://mac-scr.eloi.in:5174', 'https://mac-scr.eloi.in:8443'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -62,11 +63,16 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false, // Set to false for local development
+    secure: true, // Required: cookies must be sent over HTTPS
     httpOnly: true,
+    sameSite: 'lax' as const,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
   },
 }));
+
+// In-memory token store: access_token → user auth data
+// This is the fallback when session cookies don't propagate through the Vite proxy
+const tokenStore = new Map(); // access_token -> { user_id, user_name, access_token, authenticated, timestamp }
 
 // Utility function to get instrument token
 const instrumentsCache = new Map();
@@ -102,8 +108,52 @@ function getInstrumentToken(symbol) {
   return instrument ? instrument.instrument_token : null;
 }
 
-// Authentication middleware
+// Authentication middleware — checks Bearer token first, then falls back to session cookie
 function requireAuth(req, res, next) {
+  // 1. Check Authorization: Bearer <access_token> header
+  const authHeader = req.headers['authorization'];
+  console.log(`[requireAuth] ${req.method} ${req.path} | auth-header=${authHeader ? authHeader.slice(0,20)+'...' : 'NONE'} | session-kite=${!!req.session.kiteAuth} | tokenStore-size=${tokenStore.size}`);
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    const tokenData = tokenStore.get(token);
+    if (tokenData && tokenData.authenticated) {
+      // Fast path: found in tokenStore
+      req.kiteAuth = tokenData;
+      if (kiteService) kiteService.setAccessToken(tokenData.access_token);
+      return next();
+    }
+
+    // Slow path: token not in tokenStore (server may have restarted).
+    // Validate directly against KiteConnect API — if getProfile succeeds the token is live.
+    if (kiteService) {
+      kiteService.setAccessToken(token);
+      kiteService.getProfile()
+        .then((profile) => {
+          const authData = {
+            access_token: token,
+            user_id: profile.user_id,
+            user_name: profile.user_name,
+            authenticated: true,
+            timestamp: new Date().toISOString()
+          };
+          tokenStore.set(token, authData); // cache for future requests
+          req.kiteAuth = authData;
+          console.log(`[requireAuth] Token validated via KiteConnect for ${profile.user_name} — added to tokenStore`);
+          next();
+        })
+        .catch(() => {
+          // Token is invalid — fall through to session check below
+          requireAuthSession(req, res, next);
+        });
+      return; // async path — don't fall through synchronously
+    }
+  }
+
+  requireAuthSession(req, res, next);
+}
+
+function requireAuthSession(req, res, next) {
+  // Fall back to session cookie
   if (!req.session.kiteAuth?.authenticated) {
     return res.status(401).json({
       error: 'Authentication required',
@@ -113,6 +163,7 @@ function requireAuth(req, res, next) {
   
   if (kiteService && req.session.kiteAuth.access_token) {
     kiteService.setAccessToken(req.session.kiteAuth.access_token);
+    req.kiteAuth = req.session.kiteAuth;
   }
   
   next();
@@ -195,7 +246,7 @@ app.post('/auth/session', checkService, async (req, res) => {
     console.log('🔐 Processing authentication with request token...');
     const sessionData = await kiteService.generateSession(request_token, KITE_API_SECRET);
     
-    req.session.kiteAuth = {
+    const authData = {
       access_token: sessionData.access_token,
       public_token: sessionData.public_token,
       user_id: sessionData.user_id,
@@ -204,13 +255,28 @@ app.post('/auth/session', checkService, async (req, res) => {
       timestamp: new Date().toISOString()
     };
 
+    // Store in token map (works even when session cookie doesn't propagate through Vite proxy)
+    tokenStore.set(sessionData.access_token, authData);
+    console.log(`🔑 Token stored in tokenStore for ${sessionData.user_name}`);
+
+    // Also store in session (belt-and-suspenders)
+    req.session.kiteAuth = authData;
     kiteService.setAccessToken(sessionData.access_token);
     
     console.log(`✅ Authentication successful for user: ${sessionData.user_name}`);
+
+    // Explicitly save session before responding
+    await new Promise((resolve, reject) => {
+      req.session.save((err) => {
+        if (err) { console.warn('⚠️ Session save error:', err); resolve(null); }
+        else resolve(null);
+      });
+    });
     
     res.json({
       success: true,
       message: 'Authentication successful',
+      access_token: sessionData.access_token,
       user: {
         user_id: sessionData.user_id,
         user_name: sessionData.user_name,
@@ -228,9 +294,36 @@ app.post('/auth/session', checkService, async (req, res) => {
   }
 });
 
-app.get('/auth/status', (req, res) => {
-  const isAuthenticated = req.session.kiteAuth?.authenticated || false;
-  const userData = req.session.kiteAuth || null;
+app.get('/auth/status', async (req, res) => {
+  // Check Bearer token first
+  let userData = null;
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    userData = tokenStore.get(token) || null;
+
+    // Not in tokenStore — validate lazily via KiteConnect (handles server restarts)
+    if (!userData && kiteService) {
+      try {
+        kiteService.setAccessToken(token);
+        const profile = await kiteService.getProfile();
+        userData = {
+          access_token: token,
+          user_id: profile.user_id,
+          user_name: profile.user_name,
+          authenticated: true,
+          timestamp: new Date().toISOString()
+        };
+        tokenStore.set(token, userData);
+        console.log(`[auth/status] Token re-validated for ${profile.user_name}`);
+      } catch {
+        userData = null;
+      }
+    }
+  }
+  // Fall back to session
+  if (!userData) userData = req.session.kiteAuth || null;
+  const isAuthenticated = userData?.authenticated || false;
   
   res.json({
     authenticated: isAuthenticated,
@@ -245,6 +338,15 @@ app.get('/auth/status', (req, res) => {
 
 app.post('/auth/logout', (req, res) => {
   try {
+    // Remove from token store if Bearer token present
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      tokenStore.delete(authHeader.slice(7));
+    }
+    // Also remove session token
+    if (req.session.kiteAuth?.access_token) {
+      tokenStore.delete(req.session.kiteAuth.access_token);
+    }
     req.session.destroy((err) => {
       if (err) {
         console.error('❌ Error destroying session:', err);

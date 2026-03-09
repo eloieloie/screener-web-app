@@ -14,8 +14,13 @@ dotenv.config();
 
 // Initialize Express app
 const app = express();
+app.set('trust proxy', 1); // Trust Vite proxy so req.secure works and secure cookies are set correctly
 const PORT = process.env.PORT || 3001;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
+
+// In-memory token store: access_token → auth data
+// Used so Bearer token auth works even when session cookies don't survive the Vite proxy
+const tokenStore = new Map();
 
 // Session store
 const MemoryStoreSession = MemoryStore(session);
@@ -134,8 +139,7 @@ app.post('/auth/session', async (req, res) => {
 
     const response = await kiteService.generateSession(request_token, KITE_API_SECRET);
     
-    // Store session data
-    req.session.kite_session = {
+    const authData = {
       access_token: response.access_token,
       user_id: response.user_id,
       user_name: response.user_name,
@@ -144,9 +148,27 @@ app.post('/auth/session', async (req, res) => {
       broker: response.broker
     };
 
+    // Store in tokenStore so Bearer token auth works independent of session cookies
+    tokenStore.set(response.access_token, authData);
+    console.log(`🔑 Token stored for ${response.user_name}`);
+
+    // Also persist in session cookie (belt-and-suspenders)
+    req.session.kite_session = authData;
+
+    // Flush session before responding so cookie is written before any redirect
+    await new Promise((resolve) => {
+      req.session.save((err) => {
+        if (err) console.warn('⚠️ Session save error:', err);
+        resolve();
+      });
+    });
+
+    console.log(`✅ Zerodha authentication successful: ${response.user_name}`);
+
     res.json({
       success: true,
       message: 'Authentication successful',
+      access_token: response.access_token,  // returned so frontend can use Bearer auth
       user: {
         user_id: response.user_id,
         user_name: response.user_name,
@@ -165,22 +187,56 @@ app.post('/auth/session', async (req, res) => {
   }
 });
 
-app.get('/auth/status', (req, res) => {
-  const isAuthenticated = !!(req.session && req.session.kite_session);
+app.get('/auth/status', async (req, res) => {
+  let sessionData = null;
+
+  // 1. Check Bearer token
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    sessionData = tokenStore.get(token) || null;
+
+    // Not in tokenStore (server restarted) — validate lazily against KiteConnect
+    if (!sessionData && kiteService) {
+      try {
+        kiteService.setAccessToken(token);
+        const profile = await kiteService.getProfile();
+        sessionData = {
+          access_token: token,
+          user_id: profile.user_id,
+          user_name: profile.user_name,
+          user_shortname: profile.user_shortname,
+          authenticated: true
+        };
+        tokenStore.set(token, sessionData);
+        console.log(`[auth/status] Token re-validated for ${profile.user_name}`);
+      } catch { sessionData = null; }
+    }
+  }
+
+  // 2. Fall back to session cookie
+  if (!sessionData) sessionData = req.session?.kite_session || null;
+
+  const isAuthenticated = !!(sessionData?.user_id);
   res.json({
     authenticated: isAuthenticated,
     user: isAuthenticated ? {
-      user_id: req.session.kite_session.user_id,
-      user_name: req.session.kite_session.user_name,
-      user_shortname: req.session.kite_session.user_shortname,
-      avatar_url: req.session.kite_session.avatar_url,
-      broker: req.session.kite_session.broker
+      user_id: sessionData.user_id,
+      user_name: sessionData.user_name,
+      user_shortname: sessionData.user_shortname,
+      avatar_url: sessionData.avatar_url,
+      broker: sessionData.broker
     } : null,
     session_id: req.sessionID
   });
 });
 
 app.post('/auth/logout', (req, res) => {
+  // Clear from tokenStore too
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) tokenStore.delete(authHeader.slice(7));
+  if (req.session?.kite_session?.access_token) tokenStore.delete(req.session.kite_session.access_token);
+
   req.session.destroy((err) => {
     if (err) {
       console.error('Logout error:', err);
@@ -198,22 +254,47 @@ app.post('/auth/logout', (req, res) => {
 
 // Middleware to check authentication
 const requireAuth = (req, res, next) => {
-  console.log(`🔐 [AUTH] ${req.method} ${req.originalUrl} - Session: ${!!req.session} - KiteSession: ${!!req.session?.kite_session}`);
-  
-  if (!req.session || !req.session.kite_session) {
-    console.log(`❌ [AUTH] Authentication required for ${req.originalUrl}`);
-    return res.status(401).json({
-      success: false,
-      message: 'Authentication required'
-    });
+  const authHeader = req.headers['authorization'];
+  console.log(`🔐 [AUTH] ${req.method} ${req.path} | bearer=${authHeader ? 'YES' : 'NO'} | session=${!!req.session?.kite_session} | tokenStore=${tokenStore.size}`);
+
+  // 1. Check Bearer token (fast path)
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    const tokenData = tokenStore.get(token);
+    if (tokenData) {
+      if (kiteService) kiteService.setAccessToken(tokenData.access_token);
+      console.log(`✅ [AUTH] Bearer token valid for ${tokenData.user_name}`);
+      return next();
+    }
+
+    // Token not in store (server restarted) — validate against KiteConnect
+    if (kiteService) {
+      kiteService.setAccessToken(token);
+      kiteService.getProfile()
+        .then((profile) => {
+          const authData = { access_token: token, user_id: profile.user_id, user_name: profile.user_name };
+          tokenStore.set(token, authData);
+          console.log(`✅ [AUTH] Token re-validated for ${profile.user_name}`);
+          next();
+        })
+        .catch(() => {
+          // Invalid token — try session fallback
+          requireAuthFromSession(req, res, next);
+        });
+      return;
+    }
   }
-  
-  console.log(`✅ [AUTH] User authenticated: ${req.session.kite_session.user_name}`);
-  
-  // Set access token for KiteConnect
-  if (kiteService) {
-    kiteService.setAccessToken(req.session.kite_session.access_token);
+
+  requireAuthFromSession(req, res, next);
+};
+
+const requireAuthFromSession = (req, res, next) => {
+  if (!req.session?.kite_session) {
+    console.log(`❌ [AUTH] No auth for ${req.path}`);
+    return res.status(401).json({ success: false, message: 'Authentication required' });
   }
+  if (kiteService) kiteService.setAccessToken(req.session.kite_session.access_token);
+  console.log(`✅ [AUTH] Session valid for ${req.session.kite_session.user_name}`);
   next();
 };
 

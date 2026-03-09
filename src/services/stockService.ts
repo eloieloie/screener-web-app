@@ -34,8 +34,19 @@ interface CachedHistoricalData {
   updatedAt: Timestamp;
 }
 
-// Cache duration in milliseconds (24 hours for historical data)
-const HISTORICAL_CACHE_DURATION = 24 * 60 * 60 * 1000;
+// Returns the most recent trading day as a YYYY-MM-DD string.
+// Mon-Fri  → today's date
+// Saturday → yesterday (Friday)
+// Sunday   → two days ago (Friday)
+// Note: does not account for market holidays, but handles weekends correctly.
+const getLastTradingDayStr = (): string => {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0=Sun, 6=Sat
+  const daysBack = dayOfWeek === 0 ? 2 : dayOfWeek === 6 ? 1 : 0;
+  const lastTrading = new Date(now);
+  lastTrading.setDate(now.getDate() - daysBack);
+  return lastTrading.toISOString().split('T')[0];
+};
 
 // Historical data caching functions
 const getHistoricalDataCacheKey = (symbol: string, exchange: string, duration: string): string => {
@@ -79,150 +90,189 @@ const saveHistoricalDataToCache = async (
   }
 };
 
-// Get historical data from Firebase cache
+// Result from cache lookup — always return existing data, just report if stale
+interface CacheResult {
+  data: HistoricalDataPoint[];
+  lastDataDate: Date | null;
+  isStale: boolean;
+}
+
+// Merge two arrays of data points, deduplicating by date (newer fetch wins)
+const mergeHistoricalData = (
+  existing: HistoricalDataPoint[],
+  incoming: HistoricalDataPoint[]
+): HistoricalDataPoint[] => {
+  const map = new Map<string, HistoricalDataPoint>();
+  for (const point of existing) map.set(point.date, point);
+  for (const point of incoming) map.set(point.date, point); // incoming overwrites same-date entry
+  return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+};
+
+// Keep only data points within the requested duration window
+const trimToWindow = (
+  data: HistoricalDataPoint[],
+  fromDate: Date
+): HistoricalDataPoint[] => {
+  const fromStr = fromDate.toISOString().split('T')[0];
+  return data.filter(p => p.date >= fromStr);
+};
+
+// Get historical data from Firebase cache.
+// Always returns existing data (never discards because of age).
+// Sets isStale=true only when the last data point is older than the most recent trading day.
 const getHistoricalDataFromCache = async (
   symbol: string,
   exchange: string,
   duration: string
-): Promise<HistoricalDataPoint[] | null> => {
+): Promise<CacheResult | null> => {
   try {
     const cacheKey = getHistoricalDataCacheKey(symbol, exchange, duration);
     const docRef = doc(db, HISTORICAL_DATA_COLLECTION, cacheKey);
-    
-    console.log(`🔍 CHECKING CACHE FOR:`, {
-      symbol,
-      exchange,
-      duration,
-      cacheKey
-    });
-    
+
     const docSnapshot = await getDoc(docRef);
-    
+
     if (!docSnapshot.exists()) {
-      console.log(`❌ NO CACHE FOUND for ${symbol} (${duration})`);
+      console.log(`❌ NO CACHE for ${symbol} (${duration}) — will fetch from API`);
       return null;
     }
-    
+
     const cachedData = docSnapshot.data() as CachedHistoricalData;
-    const now = Date.now();
-    const cachedAt = cachedData.cachedAt.toMillis();
-    const ageHours = (now - cachedAt) / (1000 * 60 * 60);
-    
-    console.log(`📊 CACHE FOUND:`, {
-      symbol,
-      duration,
-      cachedAt: new Date(cachedAt),
-      ageHours: ageHours.toFixed(2),
-      dataPoints: cachedData.data.length,
-      isExpired: now - cachedAt > HISTORICAL_CACHE_DURATION
-    });
-    
-    // Check if cache is still valid (within 24 hours)
-    if (now - cachedAt > HISTORICAL_CACHE_DURATION) {
-      console.log(`⏰ CACHE EXPIRED for ${symbol} (${duration}) - age: ${ageHours.toFixed(2)} hours`);
-      return null;
+    const points = cachedData.data || [];
+
+    let lastDataDate: Date | null = null;
+    let isStale = true;
+
+    if (points.length > 0) {
+      const lastPoint = points[points.length - 1];
+      // Normalise to YYYY-MM-DD regardless of whether the date field has a time component
+      const lastPointDateStr = lastPoint.date.split('T')[0];
+      const lastTradingDayStr = getLastTradingDayStr();
+
+      // Fresh = cache already contains data up to (or beyond) the last trading day
+      isStale = lastPointDateStr < lastTradingDayStr;
+
+      lastDataDate = new Date(lastPointDateStr);
+
+      console.log(
+        `📊 CACHE ${isStale ? 'STALE' : 'FRESH'}: ${symbol} (${duration}) — ` +
+        `${points.length} pts, last: ${lastPointDateStr}, last trading day: ${lastTradingDayStr}`
+      );
+    } else {
+      console.log(`📊 CACHE EMPTY for ${symbol} (${duration}) — will fetch from API`);
     }
-    
-    console.log(`✅ USING CACHED DATA for ${symbol} (${duration}) - ${cachedData.data.length} points`);
-    return cachedData.data;
+
+    return { data: points, lastDataDate, isStale };
   } catch (error) {
-    console.error('❌ ERROR getting historical data from cache:', error);
+    console.error('❌ ERROR reading cache:', error);
     return null;
   }
 };
 
-// Get historical data with caching (main function to be used by components)
+// Get historical data with incremental caching.
+// Strategy:
+//   1. Always load existing data from Firestore (never discard it).
+//   2. Find the last date already stored.
+//   3. If API is available, fetch ONLY the missing range (lastDate → today).
+//   4. Merge new points with existing data and persist the result.
+//   5. If API is unavailable, serve whatever is already in the DB.
 export const getHistoricalData = async (
   symbol: string,
   exchange: string,
   duration: string,
   forceRefresh: boolean = false
 ): Promise<HistoricalDataPoint[]> => {
-  console.log(`🚀 GET HISTORICAL DATA CALLED:`, {
-    symbol,
-    exchange,
-    duration,
-    forceRefresh,
-    apiReady: kiteAPI.isReady()
-  });
+  console.log(`🚀 GET HISTORICAL DATA: ${symbol} (${duration}) forceRefresh=${forceRefresh}`);
+
+  // Calculate the window start date for the requested duration
+  const toDate = new Date();
+  const durationMap: Record<string, number> = {
+    '1month': 30,
+    '6months': 180,
+    '1year': 365,
+    '3years': 1095,
+    '5years': 1825
+  };
+  const days = durationMap[duration] || 365;
+  const windowStart = new Date(toDate.getTime() - days * 24 * 60 * 60 * 1000);
 
   try {
-    // If not forcing refresh, try to get from cache first
+    // ── Step 1: Load what's already in the database ──────────────────────────
+    let existingData: HistoricalDataPoint[] = [];
+    let lastDataDate: Date | null = null;
+    let cacheExists = false;
+
     if (!forceRefresh) {
-      console.log(`💾 ATTEMPTING CACHE LOOKUP (not forcing refresh)`);
-      const cachedData = await getHistoricalDataFromCache(symbol, exchange, duration);
-      if (cachedData) {
-        console.log(`✅ RETURNING CACHED DATA - ${cachedData.length} points`);
-        return cachedData;
+      const cacheResult = await getHistoricalDataFromCache(symbol, exchange, duration);
+      if (cacheResult) {
+        existingData = cacheResult.data;
+        lastDataDate = cacheResult.lastDataDate;
+        cacheExists = true;
+
+        // Data is fresh enough — return immediately without hitting the API
+        if (!cacheResult.isStale && existingData.length > 0) {
+          console.log(`✅ CACHE IS FRESH — returning ${existingData.length} points for ${symbol}`);
+          return existingData;
+        }
       }
-    } else {
-      console.log(`🔄 FORCING REFRESH - skipping cache lookup`);
     }
-    
-    // Cache miss or force refresh - fetch from API
+
+    // ── Step 2: If API is unavailable, serve existing DB data ────────────────
     if (!kiteAPI.isReady()) {
-      console.warn('⚠️ API NOT AUTHENTICATED - cannot fetch fresh historical data');
-      // Return cached data even if expired, or empty array
-      const expiredCache = await getHistoricalDataFromCache(symbol, exchange, duration);
-      if (expiredCache) {
-        console.log(`📊 RETURNING EXPIRED CACHE as fallback - ${expiredCache.length} points`);
-        return expiredCache;
+      if (cacheExists && existingData.length > 0) {
+        console.log(`⚠️ API not ready — serving ${existingData.length} cached points for ${symbol}`);
+        return existingData;
       }
-      console.log(`❌ NO CACHE AVAILABLE - returning empty array`);
+      console.log(`❌ API not ready and no cache for ${symbol} — returning empty`);
       return [];
     }
-    
-    // Calculate date range based on duration
-    const toDate = new Date();
-    const durationMap: Record<string, number> = {
-      '1month': 30,
-      '6months': 180,
-      '1year': 365,
-      '3years': 1095,
-      '5years': 1825
-    };
-    
-    const days = durationMap[duration] || 365;
-    const fromDate = new Date(toDate.getTime() - days * 24 * 60 * 60 * 1000);
-    
-    console.log(`🌐 FETCHING FRESH DATA FROM API:`, {
-      symbol,
-      duration,
-      fromDate: fromDate.toISOString(),
-      toDate: toDate.toISOString(),
-      days
-    });
-    
-    const freshData = await kiteAPI.getHistoricalData(symbol, fromDate, toDate, 'day');
-    
-    if (freshData && freshData.length > 0) {
-      console.log(`✅ API RETURNED FRESH DATA - ${freshData.length} points`);
-      // Save to cache for future use
-      await saveHistoricalDataToCache(symbol, exchange, duration, freshData);
-      return freshData;
+
+    // ── Step 3: Determine what date range is missing ─────────────────────────
+    let fetchFrom: Date;
+    if (forceRefresh || !lastDataDate) {
+      // Full re-fetch for the requested window
+      fetchFrom = windowStart;
+    } else {
+      // Incremental: start from the day AFTER the last stored data point
+      fetchFrom = new Date(lastDataDate.getTime() + 24 * 60 * 60 * 1000);
     }
-    
-    console.log(`⚠️ API RETURNED NO DATA - trying expired cache`);
-    // API returned no data, try to return expired cache or empty array
-    const expiredCache = await getHistoricalDataFromCache(symbol, exchange, duration);
-    if (expiredCache) {
-      console.log(`📊 RETURNING EXPIRED CACHE as fallback - ${expiredCache.length} points`);
-      return expiredCache;
+
+    // Nothing to fetch if we're already up-to-date
+    if (fetchFrom >= toDate) {
+      console.log(`✅ DATA UP-TO-DATE for ${symbol} — returning ${existingData.length} points`);
+      return existingData;
     }
-    console.log(`❌ NO FALLBACK AVAILABLE - returning empty array`);
-    return [];
-    
+
+    console.log(
+      `🌐 FETCHING INCREMENTAL DATA for ${symbol}: ${fetchFrom.toISOString().split('T')[0]} → ${toDate.toISOString().split('T')[0]}`
+    );
+
+    // ── Step 4: Fetch only the missing range ─────────────────────────────────
+    const newData = await kiteAPI.getHistoricalData(symbol, fetchFrom, toDate, 'day');
+    console.log(`📥 API returned ${newData?.length ?? 0} new points for ${symbol}`);
+
+    // ── Step 5: Merge & trim to the requested window ─────────────────────────
+    const merged = forceRefresh
+      ? (newData || [])
+      : mergeHistoricalData(existingData, newData || []);
+
+    const trimmed = trimToWindow(merged, windowStart);
+
+    // ── Step 6: Persist the updated dataset ──────────────────────────────────
+    if (trimmed.length > 0) {
+      await saveHistoricalDataToCache(symbol, exchange, duration, trimmed);
+      console.log(`💾 SAVED ${trimmed.length} points to DB for ${symbol} (${duration})`);
+    }
+
+    return trimmed;
+
   } catch (error) {
     console.error(`❌ ERROR getting historical data for ${symbol}:`, error);
-    
-    // On error, try to return cached data (even if expired)
-    console.log(`🔄 ATTEMPTING FALLBACK TO CACHE after error`);
-    const fallbackCache = await getHistoricalDataFromCache(symbol, exchange, duration);
-    if (fallbackCache) {
-      console.log(`📊 RETURNING CACHE as error fallback - ${fallbackCache.length} points`);
-      return fallbackCache;
+    // On any error, fall back to what's already stored rather than returning empty
+    const fallback = await getHistoricalDataFromCache(symbol, exchange, duration);
+    if (fallback && fallback.data.length > 0) {
+      console.log(`📊 RETURNING CACHED DATA as error fallback — ${fallback.data.length} points`);
+      return fallback.data;
     }
-    console.log(`❌ NO FALLBACK AVAILABLE - returning empty array after error`);
     return [];
   }
 };
@@ -708,39 +758,38 @@ export const getPopularStocks = async (limit: number = 20): Promise<Stock[]> => 
   }
 };
 
-// Clear expired historical data cache
+// Clear historical data cache entries that have no data points at all
+// (orphaned / empty documents). With incremental updates, valid entries
+// are never deleted based on age — they just get updated in place.
 export const clearExpiredHistoricalCache = async (): Promise<number> => {
   try {
-    console.log('Checking for expired historical data cache...');
-    
+    console.log('Checking for empty/orphaned historical data cache entries...');
+
     const querySnapshot = await getDocs(collection(db, HISTORICAL_DATA_COLLECTION));
-    const now = Date.now();
     let deletedCount = 0;
-    
+
     const deletePromises: Promise<void>[] = [];
-    
+
     querySnapshot.forEach((docSnapshot) => {
       const data = docSnapshot.data() as CachedHistoricalData;
-      const cachedAt = data.cachedAt.toMillis();
-      
-      // Check if cache is expired (older than 24 hours)
-      if (now - cachedAt > HISTORICAL_CACHE_DURATION) {
-        console.log(`Deleting expired cache for ${data.symbol} (${data.duration})`);
+      // Only delete entries that are completely empty (no data points stored)
+      if (!data.data || data.data.length === 0) {
+        console.log(`Deleting empty cache entry for ${data.symbol} (${data.duration})`);
         deletePromises.push(deleteDoc(doc(db, HISTORICAL_DATA_COLLECTION, docSnapshot.id)));
         deletedCount++;
       }
     });
-    
+
     if (deletePromises.length > 0) {
       await Promise.all(deletePromises);
-      console.log(`Cleared ${deletedCount} expired historical data cache entries`);
+      console.log(`Cleared ${deletedCount} empty historical data cache entries`);
     } else {
-      console.log('No expired cache entries found');
+      console.log('No empty cache entries found');
     }
-    
+
     return deletedCount;
   } catch (error) {
-    console.error('Error clearing expired historical cache:', error);
+    console.error('Error clearing historical cache:', error);
     return 0;
   }
 };

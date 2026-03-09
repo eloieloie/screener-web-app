@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import KiteConnectAPI from '../services/KiteConnectAPI';
 
 interface AuthenticationStatusProps {
@@ -11,6 +11,7 @@ const AuthenticationStatus: React.FC<AuthenticationStatusProps> = ({ onAuthChang
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [requestToken, setRequestToken] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const tokenProcessedRef = useRef(false); // Guard against React StrictMode double-invoke
 
   const kiteAPI = KiteConnectAPI.getInstance();
 
@@ -37,17 +38,39 @@ const AuthenticationStatus: React.FC<AuthenticationStatusProps> = ({ onAuthChang
     const status = urlParams.get('status');
 
     if (token && status === 'success') {
-      setRequestToken(token);
-      setShowAuthModal(true);
-    }
+      // Guard against React StrictMode double-invoking this effect with the same token
+      if (tokenProcessedRef.current) return;
+      tokenProcessedRef.current = true;
 
-    // Check authentication status on component mount
-    const checkAuth = async () => {
-      await kiteAPI.checkAuthStatus();
-      updateAuthStatus();
-    };
-    
-    checkAuth();
+      // Auto-complete authentication without requiring manual button click
+      const autoComplete = async () => {
+        setIsLoading(true);
+        try {
+          await kiteAPI.generateSession(token, '');
+          // Clear URL parameters
+          const url = new URL(window.location.href);
+          url.searchParams.delete('request_token');
+          url.searchParams.delete('status');
+          window.history.replaceState({}, document.title, url.pathname);
+          await updateAuthStatus();
+        } catch (error) {
+          console.error('Auto-authentication failed:', error);
+          // Fall back to manual modal if auto-complete fails
+          setRequestToken(token);
+          setShowAuthModal(true);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      autoComplete();
+    } else {
+      // Check authentication status on component mount
+      const checkAuth = async () => {
+        await kiteAPI.checkAuthStatus();
+        updateAuthStatus();
+      };
+      checkAuth();
+    }
   }, [updateAuthStatus, kiteAPI]);
 
   const handleLogin = async () => {

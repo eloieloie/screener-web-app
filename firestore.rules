@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Personal app - allow all reads and writes
+    // Access is controlled at the application layer via KiteConnect authentication
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
