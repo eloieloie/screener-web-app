@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import KiteConnectAPI from '../services/KiteConnectAPI'
+import KiteConnectAPI from '../services/kiteConnectAPI'
 
 interface ChartWidgetProps {
   symbol: string

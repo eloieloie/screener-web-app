@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import KiteConnectAPI from '../services/KiteConnectAPI';
+import KiteConnectAPI from '../services/kiteConnectAPI';
 
 interface AuthenticationStatusProps {
   onAuthChange?: (isAuthenticated: boolean) => void;

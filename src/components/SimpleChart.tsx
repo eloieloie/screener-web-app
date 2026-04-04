@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import KiteConnectAPI from '../services/KiteConnectAPI'
+import KiteConnectAPI from '../services/kiteConnectAPI'
 
 interface SimpleChartProps {
   symbol: string

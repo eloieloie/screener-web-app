@@ -16,7 +16,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import type { Stock, AddStockForm, HistoricalDataPoint } from '../types/Stock';
-import KiteConnectAPI from './KiteConnectAPI';
+import KiteConnectAPI from './kiteConnectAPI';
 
 const STOCKS_COLLECTION = 'stocks';
 const HISTORICAL_DATA_COLLECTION = 'historicalData';

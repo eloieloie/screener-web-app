@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { getHistoricalData } from '../services/stockService'
 import type { HistoricalDataPoint } from '../types/Stock'
-import KiteConnectAPI from '../services/KiteConnectAPI'
+import KiteConnectAPI from '../services/kiteConnectAPI'
 
 interface EnhancedChartProps {
   symbol: string

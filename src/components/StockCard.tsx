@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { Stock } from '../types/Stock'
 import { formatVolume } from '../utils/formatters'
 import SimpleChart from './SimpleChart'
-import KiteConnectAPI from '../services/KiteConnectAPI'
+import KiteConnectAPI from '../services/kiteConnectAPI'
 
 interface StockCardProps {
   stock: Stock
