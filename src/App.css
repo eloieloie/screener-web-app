@@ -317,6 +317,16 @@
   animation: pulse 2s infinite;
 }
 
+/* Chart grid cards */
+.chart-card {
+  transition: box-shadow var(--transition-fast, 0.15s), transform var(--transition-fast, 0.15s);
+}
+
+.chart-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
   .app-nav {

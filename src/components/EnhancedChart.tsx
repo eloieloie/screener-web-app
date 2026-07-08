@@ -134,9 +134,7 @@ function EnhancedChart({
     const devicePixelRatio = window.devicePixelRatio || 1
     canvas.width = width * devicePixelRatio
     canvas.height = height * devicePixelRatio
-    canvas.style.width = width + 'px'
-    canvas.style.height = height + 'px'
-    
+
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.scale(devicePixelRatio, devicePixelRatio)
     
@@ -401,69 +399,69 @@ function EnhancedChart({
       )}
       {/* Normal chart content — visible once enabled */}
       <div style={{ display: enabled ? undefined : 'none' }}>
-      <div className="d-flex justify-content-between align-items-center mb-2">
-        <div>
+      <div className="d-flex justify-content-between align-items-center mb-1">
+        <div style={{ fontSize: '13px' }}>
           <span className="fw-bold">{symbol}</span>
-          <span className="text-muted ms-2">• {DURATION_CONFIG[duration].label}</span>
+          <span className="text-muted ms-1">• {DURATION_CONFIG[duration].label}</span>
         </div>
         <div className="d-flex align-items-center gap-1">
-          <a 
+          <a
             href={getTradingViewUrl(symbol)}
             target="_blank"
             rel="noopener noreferrer"
             className="btn btn-outline-secondary btn-sm p-1"
             title="View on TradingView"
-            style={{ fontSize: '10px', lineHeight: '1', textDecoration: 'none' }}
+            style={{ fontSize: '9px', lineHeight: '1', textDecoration: 'none' }}
           >
             📊
           </a>
-          <button 
+          <button
             className="btn btn-outline-secondary btn-sm p-1"
             onClick={handleRefresh}
             disabled={isLoading}
             title="Refresh chart data"
-            style={{ fontSize: '10px', lineHeight: '1' }}
+            style={{ fontSize: '9px', lineHeight: '1' }}
           >
             🔄
           </button>
         </div>
       </div>
-      
+
       {/* Metrics Section */}
-      <div className="d-flex justify-content-end mb-2">
+      <div className="d-flex justify-content-between align-items-center mb-1" style={{ minHeight: '18px' }}>
         {error ? (
-          <span className="text-danger small">⚠️ {error}</span>
+          <span className="text-danger" style={{ fontSize: '11px' }}>⚠️ {error}</span>
         ) : isLoading ? (
           <div className="d-flex align-items-center">
             <div className="spinner-border spinner-border-sm me-1" role="status">
               <span className="visually-hidden">Loading...</span>
             </div>
-            <span className="text-muted small">Loading...</span>
+            <span className="text-muted" style={{ fontSize: '11px' }}>Loading...</span>
           </div>
         ) : (
-          <div className="text-end">
-            <div className="d-flex align-items-center gap-1 justify-content-end">
-              <span className="text-muted small">Current:</span>
-              <span className="small fw-bold">₹{currentPrice}</span>
-              <span className={`badge ${change >= 0 ? 'bg-success' : 'bg-danger'}`}>
+          <>
+            <div className="d-flex align-items-center gap-1" style={{ fontSize: '11px' }}>
+              <span className="text-muted">₹{currentPrice}</span>
+              <span
+                className={`badge ${change >= 0 ? 'bg-success' : 'bg-danger'}`}
+                style={{ fontSize: '10px', padding: '2px 5px' }}
+              >
                 {changePercent}
               </span>
             </div>
-            <div className="d-flex align-items-center gap-1 justify-content-end">
-              <span className="text-muted small">Period High:</span>
-              <span className="small">₹{periodHigh}</span>
+            <div className="text-muted" style={{ fontSize: '10px' }}>
+              High ₹{periodHigh}
             </div>
-          </div>
+          </>
         )}
       </div>
       <div className="position-relative">
         <canvas 
           ref={canvasRef}
           className="border rounded bg-white w-100"
-          style={{ 
-            width: '100%', 
+          style={{
+            width: '100%',
             height: 'auto',
-            maxWidth: `${width}px`,
             aspectRatio: `${width}/${height}`
           }}
         />

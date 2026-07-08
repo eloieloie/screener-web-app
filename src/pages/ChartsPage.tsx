@@ -366,24 +366,32 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
       )}
 
       {/* Charts Grid */}
-      <div className="d-flex flex-wrap gap-4">
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+          gap: '0.75rem'
+        }}
+      >
         {filteredStocks.map((stock) => (
-          <div key={stock.id} style={{ width: '400px', minWidth: '400px' }}>
-            <div className="card h-100 shadow-sm">
-              <div className="card-body">
-                <EnhancedChart
-                  symbol={stock.symbol}
-                  duration={selectedDuration}
-                  width={350}
-                  height={220}
-                  className="w-100"
-                  onError={handleChartError}
-                  onRefreshReady={registerChartRef}
-                  liveDataEnabled={liveDataEnabled}
-                  exchange={stock.exchange}
-                  enabled={enabledStocks.has(stock.id)}
-                />
-              </div>
+          <div
+            key={stock.id}
+            className="card h-100 chart-card"
+            style={{ border: '1px solid #e5e7eb', borderRadius: '10px' }}
+          >
+            <div className="card-body p-2">
+              <EnhancedChart
+                symbol={stock.symbol}
+                duration={selectedDuration}
+                width={260}
+                height={165}
+                className="w-100"
+                onError={handleChartError}
+                onRefreshReady={registerChartRef}
+                liveDataEnabled={liveDataEnabled}
+                exchange={stock.exchange}
+                enabled={enabledStocks.has(stock.id)}
+              />
             </div>
           </div>
         ))}
