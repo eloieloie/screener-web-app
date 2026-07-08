@@ -382,6 +382,76 @@ app.get("/api/stocks/historical/:symbol", requireAuth, checkService, async (req,
   }
 });
 
+// ── NSE Equity instruments — used by the temporary import page ───────────────
+
+// In-memory NSE equity cache for this function instance (24h TTL)
+let nseEquityCache = null;
+let nseEquityCacheTime = null;
+const NSE_CACHE_DURATION = 24 * 60 * 60 * 1000;
+
+const ensureNseEquityCache = async (kite, forceRefresh = false) => {
+  if (!forceRefresh && nseEquityCache && nseEquityCacheTime && Date.now() - nseEquityCacheTime < NSE_CACHE_DURATION) {
+    return nseEquityCache;
+  }
+  console.log("[NSE_IMPORT] Fetching NSE instruments from Zerodha...");
+  const instruments = await kite.getInstruments("NSE");
+  // instrument_type === 'EQ' excludes futures/options/bonds in most cases.
+  // The suffix exclusion removes special NSE series that still carry type 'EQ':
+  // -SG (G-Secs/SDL), -BE (trade-for-trade), -N0/-N1/-N2 (odd-lot), -BL, -IL.
+  const NON_EQUITY_SUFFIX = /-(SG|BE|N0|N1|N2|BL|IL|SM|EM)$/;
+  nseEquityCache = instruments.filter(
+    inst => inst.instrument_type === "EQ" && !NON_EQUITY_SUFFIX.test(inst.tradingsymbol)
+  ).map(inst => ({
+    symbol: inst.tradingsymbol,
+    name: inst.name,
+    exchange: inst.exchange,
+    instrument_token: inst.instrument_token,
+    isin: inst.isin || null,
+    tick_size: inst.tick_size,
+    lot_size: inst.lot_size,
+  }));
+  nseEquityCacheTime = Date.now();
+  console.log(`[NSE_IMPORT] Cached ${nseEquityCache.length} NSE equity instruments`);
+  return nseEquityCache;
+};
+
+app.get("/api/instruments/nse/equity", requireAuth, checkService, async (req, res) => {
+  try {
+    const forceRefresh = req.query.refresh === "true";
+    if (forceRefresh) { nseEquityCache = null; nseEquityCacheTime = null; }
+    const equities = await ensureNseEquityCache(getKiteService(), forceRefresh);
+    res.json({
+      success: true,
+      data: equities,
+      metadata: {
+        total_count: equities.length,
+        cached: true,
+        cached_at: nseEquityCacheTime ? new Date(nseEquityCacheTime).toISOString() : null,
+        expires_at: nseEquityCacheTime ? new Date(nseEquityCacheTime + NSE_CACHE_DURATION).toISOString() : null,
+      },
+    });
+  } catch (err) {
+    console.error("[NSE_IMPORT] Error:", err.message);
+    res.status(500).json({ success: false, message: "Failed to fetch NSE equity list", error: err.message });
+  }
+});
+
+app.post("/api/instruments/nse/import/validate", requireAuth, (req, res) => {
+  const { stocks } = req.body;
+  if (!Array.isArray(stocks) || stocks.length === 0) {
+    return res.status(400).json({ success: false, message: "stocks array is required and must not be empty" });
+  }
+  const valid = [], invalid = [];
+  for (const s of stocks) {
+    if (s.symbol && s.exchange && s.name) {
+      valid.push({ symbol: s.symbol.trim().toUpperCase(), name: s.name.trim(), exchange: s.exchange, tags: Array.isArray(s.tags) ? s.tags : [], instrument_token: s.instrument_token || null, isin: s.isin || null });
+    } else {
+      invalid.push({ raw: s, reason: "Missing symbol, name, or exchange" });
+    }
+  }
+  res.json({ success: true, valid_count: valid.length, invalid_count: invalid.length, valid, invalid });
+});
+
 // ── Error handlers ────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line no-unused-vars

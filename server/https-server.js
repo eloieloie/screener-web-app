@@ -443,6 +443,133 @@ let instrumentsCache = null;
 let instrumentsCacheTime = null;
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NSE Equity instruments — used by the temporary import page
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Ensure instruments cache is populated for NSE. Returns all NSE rows.
+const ensureInstrumentsCache = async () => {
+  if (!instrumentsCache || !instrumentsCacheTime || Date.now() - instrumentsCacheTime > CACHE_DURATION) {
+    console.log('🔍 [NSE_IMPORT] Fetching fresh instruments from Zerodha...');
+    const nseInstruments = await kiteService.getInstruments(['NSE']);
+    const bseInstruments = await kiteService.getInstruments(['BSE']);
+    instrumentsCache = [...nseInstruments, ...bseInstruments];
+    instrumentsCacheTime = Date.now();
+    console.log(`✅ [NSE_IMPORT] Cached ${instrumentsCache.length} instruments total`);
+  }
+};
+
+// GET /api/instruments/nse/equity
+// Returns the full NSE equity stock master list (no derivatives, no indices).
+// Requires authentication. Results are served from the 24-hour in-memory cache.
+// Query params:
+//   refresh=true  — force a fresh fetch from Zerodha even if cache is valid
+app.get('/api/instruments/nse/equity', requireAuth, async (req, res) => {
+  try {
+    if (!kiteService) {
+      return res.status(503).json({ success: false, message: 'KiteConnect service not available' });
+    }
+
+    // Optional manual cache-bust
+    if (req.query.refresh === 'true') {
+      instrumentsCache = null;
+      instrumentsCacheTime = null;
+      console.log('🔄 [NSE_IMPORT] Cache cleared — will fetch fresh instruments');
+    }
+
+    await ensureInstrumentsCache();
+
+    // Filter to NSE main-board equities only.
+    // instrument_type === 'EQ' excludes futures/options (FUT, CE, PE) and most bonds.
+    // The suffix exclusion removes special NSE series that still carry instrument_type 'EQ':
+    //   -SG  State Development Loans / G-Secs  (e.g. 763AP34-SG)
+    //   -BE  Trade-for-trade / T2T series       (e.g. THACKER-BE)
+    //   -N0/-N1/-N2  Odd-lot instruments        (e.g. SDIL41-N0)
+    //   -BL  Block deal
+    //   -IL  Institutional lot
+    const NON_EQUITY_SUFFIX = /-(SG|BE|N0|N1|N2|BL|IL|SM|EM)$/;
+    const equities = instrumentsCache.filter(
+      inst =>
+        inst.exchange === 'NSE' &&
+        inst.instrument_type === 'EQ' &&
+        !NON_EQUITY_SUFFIX.test(inst.tradingsymbol)
+    );
+
+    const normalized = equities.map(inst => ({
+      symbol: inst.tradingsymbol,
+      name: inst.name,
+      exchange: inst.exchange,
+      instrument_token: inst.instrument_token,
+      isin: inst.isin || null,
+      tick_size: inst.tick_size,
+      lot_size: inst.lot_size
+    }));
+
+    console.log(`✅ [NSE_IMPORT] Returning ${normalized.length} NSE equity instruments`);
+
+    res.json({
+      success: true,
+      data: normalized,
+      metadata: {
+        total_count: normalized.length,
+        cached: true,
+        cached_at: instrumentsCacheTime ? new Date(instrumentsCacheTime).toISOString() : null,
+        expires_at: instrumentsCacheTime ? new Date(instrumentsCacheTime + CACHE_DURATION).toISOString() : null
+      }
+    });
+  } catch (error) {
+    console.error('❌ [NSE_IMPORT] Error fetching NSE equities:', error.message);
+    res.status(500).json({ success: false, message: 'Failed to fetch NSE equity list', error: error.message });
+  }
+});
+
+// POST /api/instruments/nse/import
+// Receives an array of stock metadata entries and writes them to Firestore
+// using the Firebase Admin SDK, or delegates to the client when admin SDK is not
+// configured (clients call this per-batch). In this lightweight setup we simply
+// return the validated payload — the frontend writes to Firestore directly using
+// the Firebase client SDK (same as the existing addStock flow) but with a
+// metadata-only path (no quote fetch, no historical fetch).
+// This endpoint validates and acknowledges the batch; actual Firestore writes
+// happen client-side to keep auth scoping simple.
+app.post('/api/instruments/nse/import/validate', requireAuth, (req, res) => {
+  try {
+    const { stocks } = req.body;
+    if (!Array.isArray(stocks) || stocks.length === 0) {
+      return res.status(400).json({ success: false, message: 'stocks array is required and must not be empty' });
+    }
+
+    const valid = [];
+    const invalid = [];
+
+    for (const s of stocks) {
+      if (s.symbol && typeof s.symbol === 'string' && s.exchange && s.name) {
+        valid.push({
+          symbol: s.symbol.trim().toUpperCase(),
+          name: s.name.trim(),
+          exchange: s.exchange,
+          tags: Array.isArray(s.tags) ? s.tags : [],
+          instrument_token: s.instrument_token || null,
+          isin: s.isin || null
+        });
+      } else {
+        invalid.push({ raw: s, reason: 'Missing symbol, name, or exchange' });
+      }
+    }
+
+    res.json({
+      success: true,
+      valid_count: valid.length,
+      invalid_count: invalid.length,
+      valid,
+      invalid
+    });
+  } catch (error) {
+    console.error('❌ [NSE_IMPORT] Validation error:', error.message);
+    res.status(500).json({ success: false, message: 'Validation failed', error: error.message });
+  }
+});
+
 // Helper function to get instrument token from symbol
 const getInstrumentToken = async (symbol) => {
   console.log(`🔍 [INSTRUMENT] Looking up token for: ${symbol}`);

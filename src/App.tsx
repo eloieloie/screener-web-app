@@ -4,9 +4,10 @@ import AuthenticationStatus from './components/AuthenticationStatus'
 import StocksPage from './pages/StocksPage'
 import ChartsPage from './pages/ChartsPage'
 import BulkStocksPage from './pages/BulkStocksPage'
+import TempNseImportPage from './pages/TempNseImportPage'
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<'dashboard' | 'stocks' | 'bulk' | 'charts' | 'analytics'>('dashboard')
+  const [currentPage, setCurrentPage] = useState<'dashboard' | 'stocks' | 'bulk' | 'charts' | 'analytics' | 'nse-import'>('dashboard')
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
 
   const navigateToChartsWithTag = (tag: string) => {
@@ -53,10 +54,17 @@ function App() {
               📈 Charts
             </button>
             <button 
-              className={`btn ${currentPage === 'analytics' ? 'btn-primary' : 'btn-outline-primary'}`}
+              className={`btn ${currentPage === 'analytics' ? 'btn-primary' : 'btn-outline-primary'} me-2`}
               onClick={() => setCurrentPage('analytics')}
             >
               📊 Analytics
+            </button>
+            <button 
+              className={`btn ${currentPage === 'nse-import' ? 'btn-warning' : 'btn-outline-warning'}`}
+              onClick={() => setCurrentPage('nse-import')}
+              title="Temporary page — remove after permanent pipeline is set up"
+            >
+              🗂️ NSE Import
             </button>
           </div>
         </div>
@@ -111,6 +119,8 @@ function App() {
           <BulkStocksPage />
         ) : currentPage === 'charts' ? (
           <ChartsPage selectedTag={selectedTag} onClearTagFilter={clearTagFilter} />
+        ) : currentPage === 'nse-import' ? (
+          <TempNseImportPage />
         ) : (
           <Analytics />
         )}

@@ -91,3 +91,29 @@ export interface HistoricalDataPoint {
   volume: number;
   date: string;
 }
+
+// NSE Equity instrument from Zerodha instruments dump
+export interface NseEquity {
+  symbol: string;
+  name: string;
+  exchange: 'NSE';
+  instrument_token: number;
+  isin: string | null;
+  tick_size: number;
+  lot_size: number;
+  // Assigned during import
+  primaryCategory?: string;
+  secondaryCategory?: string;
+  tags?: string[];
+}
+
+export interface NseEquityListResponse {
+  success: boolean;
+  data: NseEquity[];
+  metadata: {
+    total_count: number;
+    cached: boolean;
+    cached_at: string | null;
+    expires_at: string | null;
+  };
+}

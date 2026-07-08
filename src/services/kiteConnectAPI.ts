@@ -1,4 +1,4 @@
-import type { Stock } from '../types/Stock';
+import type { Stock, NseEquity, NseEquityListResponse } from '../types/Stock';
 
 interface HistoricalDataPoint {
   date: string;
@@ -98,12 +98,24 @@ class KiteConnectAPI {
 
     const fetchOptions: RequestInit = {
       credentials: 'include',
+      cache: 'no-store', // Never serve or store a cached API response
       ...options,
       headers,
     };
 
     const response = await fetch(url, fetchOptions);
-    
+
+    // Guard against receiving the SPA HTML catch-all instead of JSON.
+    // This happens when the hosting rewrite is not yet active (CDN propagation
+    // delay) or when the backend is unavailable.
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.includes('application/json')) {
+      throw new Error(
+        `Backend not reachable — received HTML instead of JSON for ${endpoint}. ` +
+        `Try a hard refresh (Cmd+Shift+R) or check the backend server.`
+      );
+    }
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Network error' }));
       throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
@@ -318,6 +330,21 @@ class KiteConnectAPI {
       }
       throw error;
     }
+  }
+
+  /**
+   * Fetch full NSE equity instruments list from the backend.
+   * Returns metadata only — no quotes, no historical data.
+   * Requires active Zerodha auth.
+   */
+  async getNseEquities(forceRefresh = false): Promise<NseEquity[]> {
+    if (!this.isAuthenticated) {
+      throw new Error('KiteConnect API not authenticated. Please login to access NSE instruments.');
+    }
+    const url = forceRefresh ? '/api/instruments/nse/equity?refresh=true' : '/api/instruments/nse/equity';
+    const response = await this.makeRequest<NseEquityListResponse>(url);
+    if (response.success) return response.data;
+    throw new Error('Failed to fetch NSE equity list');
   }
 
   /**

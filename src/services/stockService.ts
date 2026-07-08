@@ -12,7 +12,8 @@ import {
   where,
   updateDoc,
   arrayUnion,
-  setDoc 
+  setDoc,
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import type { Stock, AddStockForm, HistoricalDataPoint } from '../types/Stock';
@@ -811,4 +812,116 @@ export const refreshAllHistoricalDataForStock = async (
     console.error(`Error refreshing historical data for ${symbol}:`, error);
     throw error;
   }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Metadata-only bulk import — used by the temporary NSE import page.
+// Writes symbol/name/exchange/tags to Firestore with NO quote fetch and
+// NO historical data fetch.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface BulkImportEntry {
+  symbol: string;
+  name: string;
+  exchange: 'NSE' | 'BSE';
+  tags: string[];
+  instrument_token?: number | null;
+  isin?: string | null;
+}
+
+export interface BulkImportResult {
+  imported: number;
+  skipped: number;   // already existed, tags merged
+  failed: number;
+  failedEntries: Array<{ symbol: string; reason: string }>;
+}
+
+export const bulkAddStockMetadataOnly = async (
+  entries: BulkImportEntry[],
+  onProgress?: (done: number, total: number) => void
+): Promise<BulkImportResult> => {
+  const result: BulkImportResult = { imported: 0, skipped: 0, failed: 0, failedEntries: [] };
+  const total = entries.length;
+
+  // Process in chunks of 20 to avoid overwhelming Firestore write quota
+  const CHUNK = 20;
+  for (let i = 0; i < total; i += CHUNK) {
+    const chunk = entries.slice(i, i + CHUNK);
+
+    await Promise.all(
+      chunk.map(async (entry) => {
+        try {
+          const existing = await findExistingStock(entry.symbol, entry.exchange);
+
+          if (existing) {
+            // Merge any new tags only
+            const newTags = (entry.tags || []).filter(t => !existing.tags.includes(t));
+            if (newTags.length > 0) {
+              await updateStockTags(existing.id, newTags);
+            }
+            result.skipped++;
+          } else {
+            const stockDocument: Record<string, unknown> = {
+              symbol: entry.symbol,
+              name: entry.name,
+              exchange: entry.exchange,
+              tags: entry.tags || [],
+              createdAt: Timestamp.now(),
+              updatedAt: Timestamp.now()
+            };
+            // Store instrument_token and isin as extras when available
+            if (entry.instrument_token != null) stockDocument.instrument_token = entry.instrument_token;
+            if (entry.isin) stockDocument.isin = entry.isin;
+
+            await addDoc(collection(db, STOCKS_COLLECTION), stockDocument);
+            result.imported++;
+          }
+        } catch (err) {
+          result.failed++;
+          result.failedEntries.push({
+            symbol: entry.symbol,
+            reason: err instanceof Error ? err.message : 'Unknown error'
+          });
+        }
+      })
+    );
+
+    onProgress?.(Math.min(i + CHUNK, total), total);
+  }
+
+  return result;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cleanup helpers — used by the temporary NSE import page
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Deletes all stocks that carry the given tag (e.g. 'unclassified' or 'nse-import').
+ * Operates in Firestore writeBatch chunks of 400 to stay well inside the 500-op limit.
+ * Returns the total number of deleted documents.
+ */
+export const deleteStocksByTag = async (
+  tag: string,
+  onProgress?: (done: number, total: number) => void
+): Promise<number> => {
+  const snapshot = await getDocs(
+    query(collection(db, STOCKS_COLLECTION), where('tags', 'array-contains', tag))
+  );
+
+  const docs = snapshot.docs;
+  const total = docs.length;
+  let deleted = 0;
+
+  const CHUNK = 400; // stay well inside Firestore's 500-op/batch limit
+  for (let i = 0; i < docs.length; i += CHUNK) {
+    const batch = writeBatch(db);
+    const chunk = docs.slice(i, i + CHUNK);
+    chunk.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+    deleted += chunk.length;
+    onProgress?.(deleted, total);
+  }
+
+  return deleted;
 };
