@@ -70,7 +70,7 @@ const CATEGORY_RULES: CategoryRule[] = [
   { primary: 'Automobile', secondary: 'OEMs',
     keywords: ['maruti suzuki','tata motors','mahindra & mahindra','hyundai motor','bajaj auto','hero motocorp','tvs motor','eicher motors','force motors','ashok leyland','sml isuzu','escorts kubota'] },
   { primary: 'Automobile', secondary: 'Auto Ancillaries',
-    keywords: ['bosch','motherson sumi','minda','fag bearings','schaeffler','bharat forge','apollo tyres','mrf','ceat','balkrishna','exide','amara raja','sundaram fasteners','gabriel','rane','suprajit engineering','ramkrishna forgings','shriram pistons','endurance technologies','sona blw','uno minda'] },
+    keywords: ['bosch','motherson sumi','fag bearings','schaeffler','bharat forge','apollo tyres','mrf','ceat','balkrishna','exide','amara raja','sundaram fasteners','gabriel','rane','suprajit engineering','ramkrishna forgings','shriram pistons','endurance technologies','sona blw'] },
 
   // ── A6. FMCG & Consumer ─────────────────────────────────────────────────
   { primary: 'FMCG', secondary: 'Consumer Staples',
