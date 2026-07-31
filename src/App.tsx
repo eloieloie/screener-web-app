@@ -1,14 +1,36 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { onAuthStateChanged, signOut, type User } from 'firebase/auth'
+import { auth } from './config/firebase'
 import Analytics from './components/Analytics'
 import AuthenticationStatus from './components/AuthenticationStatus'
 import StocksPage from './pages/StocksPage'
 import ChartsPage from './pages/ChartsPage'
 import BulkStocksPage from './pages/BulkStocksPage'
 import TempNseImportPage from './pages/TempNseImportPage'
+import LoginPage from './pages/LoginPage'
 
 function App() {
   const [currentPage, setCurrentPage] = useState<'dashboard' | 'stocks' | 'bulk' | 'charts' | 'analytics' | 'nse-import'>('dashboard')
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
+  const [user, setUser] = useState<User | null | undefined>(undefined)
+
+  useEffect(() => {
+    return onAuthStateChanged(auth, u => setUser(u))
+  }, [])
+
+  if (user === undefined) {
+    return (
+      <div className="min-vh-100 bg-light d-flex align-items-center justify-content-center">
+        <div className="spinner-border text-primary" role="status">
+          <span className="visually-hidden">Loading...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (user === null) {
+    return <LoginPage />
+  }
 
   const navigateToChartsWithTag = (tag: string) => {
     setSelectedTag(tag)
@@ -59,12 +81,19 @@ function App() {
             >
               📊 Analytics
             </button>
-            <button 
-              className={`btn ${currentPage === 'nse-import' ? 'btn-warning' : 'btn-outline-warning'}`}
+            <button
+              className={`btn ${currentPage === 'nse-import' ? 'btn-warning' : 'btn-outline-warning'} me-2`}
               onClick={() => setCurrentPage('nse-import')}
               title="Temporary page — remove after permanent pipeline is set up"
             >
               🗂️ NSE Import
+            </button>
+            <button
+              className="btn btn-outline-danger"
+              onClick={() => signOut(auth)}
+              title={`Signed in as ${user.email}`}
+            >
+              Sign Out
             </button>
           </div>
         </div>

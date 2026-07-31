@@ -198,8 +198,8 @@ const StocksPage = ({ onNavigateToChartsWithTag }: StocksPageProps) => {
         </div>
       </div>
 
-      {/* ── Tag cloud (only shown when filter active and tags exist) ────── */}
-      {isFilterActive && filteredStocks.length > 0 && getUniqueTags().length > 0 && (
+      {/* ── Tag cloud (shown by default whenever tags exist) ─────────────── */}
+      {getUniqueTags().length > 0 && (
         <div className="card mb-4">
           <div className="card-header bg-light">
             <div className="d-flex justify-content-between align-items-center">

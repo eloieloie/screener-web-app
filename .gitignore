@@ -41,3 +41,7 @@ server/ssl/*.pem
 server/ssl/*.key
 server/ssl/*.crt
 server/ssl/*.cert
+
+# Local Claude Code tooling (machine-specific hooks/paths, generated graph cache)
+.claude/
+graphify-out/

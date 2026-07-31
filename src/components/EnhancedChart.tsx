@@ -1,4 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import {
+  createChart,
+  AreaSeries,
+  CrosshairMode,
+  ColorType,
+  type IChartApi,
+  type ISeriesApi,
+} from 'lightweight-charts'
 import { getHistoricalData } from '../services/stockService'
 import type { HistoricalDataPoint } from '../types/Stock'
 import KiteConnectAPI from '../services/kiteConnectAPI'
@@ -20,51 +28,46 @@ interface EnhancedChartProps {
 const kiteAPI = KiteConnectAPI.getInstance()
 
 const getChartColors = (changePercent: number) => {
-    // Change percent is negative for downfall, so we use absolute value
-    const absChange = Math.abs(changePercent)
-    
-    if (changePercent >= 0) {
-      // Positive change - green
-      return {
-        lineColor: '#22c55e',
-        fillColorStart: 'rgba(34, 197, 94, 0.2)',
-        fillColorEnd: 'rgba(34, 197, 94, 0.05)',
-        dotColor: '#22c55e'
-      }
-    } else if (absChange <= 25) {
-      // 0-25% downfall - light orange
-      return {
-        lineColor: '#f59e0b',
-        fillColorStart: 'rgba(245, 158, 11, 0.2)',
-        fillColorEnd: 'rgba(245, 158, 11, 0.05)',
-        dotColor: '#f59e0b'
-      }
-    } else if (absChange <= 50) {
-      // 25-50% downfall - orange
-      return {
-        lineColor: '#ea580c',
-        fillColorStart: 'rgba(234, 88, 12, 0.2)',
-        fillColorEnd: 'rgba(234, 88, 12, 0.05)',
-        dotColor: '#ea580c'
-      }
-    } else if (absChange <= 75) {
-      // 50-75% downfall - red-orange
-      return {
-        lineColor: '#dc2626',
-        fillColorStart: 'rgba(220, 38, 38, 0.2)',
-        fillColorEnd: 'rgba(220, 38, 38, 0.05)',
-        dotColor: '#dc2626'
-      }
-    } else {
-      // 75-100% downfall - deep red
-      return {
-        lineColor: '#991b1b',
-        fillColorStart: 'rgba(153, 27, 27, 0.2)',
-        fillColorEnd: 'rgba(153, 27, 27, 0.05)',
-        dotColor: '#991b1b'
-      }
+  // Change percent is negative for downfall, so we use absolute value
+  const absChange = Math.abs(changePercent)
+
+  if (changePercent >= 0) {
+    // Positive change - green
+    return {
+      lineColor: '#22c55e',
+      topColor: 'rgba(34, 197, 94, 0.25)',
+      bottomColor: 'rgba(34, 197, 94, 0.02)',
+    }
+  } else if (absChange <= 25) {
+    // 0-25% downfall - light orange
+    return {
+      lineColor: '#f59e0b',
+      topColor: 'rgba(245, 158, 11, 0.25)',
+      bottomColor: 'rgba(245, 158, 11, 0.02)',
+    }
+  } else if (absChange <= 50) {
+    // 25-50% downfall - orange
+    return {
+      lineColor: '#ea580c',
+      topColor: 'rgba(234, 88, 12, 0.25)',
+      bottomColor: 'rgba(234, 88, 12, 0.02)',
+    }
+  } else if (absChange <= 75) {
+    // 50-75% downfall - red-orange
+    return {
+      lineColor: '#dc2626',
+      topColor: 'rgba(220, 38, 38, 0.25)',
+      bottomColor: 'rgba(220, 38, 38, 0.02)',
+    }
+  } else {
+    // 75-100% downfall - deep red
+    return {
+      lineColor: '#991b1b',
+      topColor: 'rgba(153, 27, 27, 0.25)',
+      bottomColor: 'rgba(153, 27, 27, 0.02)',
     }
   }
+}
 
 const DURATION_CONFIG = {
   '1month': { days: 30, label: '1M', interval: 'day' },
@@ -74,36 +77,57 @@ const DURATION_CONFIG = {
   '5years': { days: 1825, label: '5Y', interval: 'day' }
 } as const
 
-function EnhancedChart({ 
-  symbol, 
-  width = 400, 
-  height = 250, 
-  className = "", 
-  duration, 
-  onError, 
+interface ChartStats {
+  currentPrice: number
+  periodHigh: number
+  changeFromHighPercent: number
+}
+
+interface TooltipState {
+  visible: boolean
+  x: number
+  y: number
+  price: string
+  date: string
+}
+
+// Converts whatever date format the backend gives us into lightweight-charts' 'YYYY-MM-DD'
+const toBusinessDay = (dateStr: string): string => {
+  const d = new Date(dateStr)
+  return d.toISOString().slice(0, 10)
+}
+
+function EnhancedChart({
+  symbol,
+  width = 400,
+  height = 250,
+  className = "",
+  duration,
+  onError,
   onRefreshReady,
   liveDataEnabled = false,
   exchange = 'NSE',
   enabled = true
 }: EnhancedChartProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<IChartApi | null>(null)
+  const seriesRef = useRef<ISeriesApi<'Area'> | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [stats, setStats] = useState<ChartStats | null>(null)
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null)
 
   const refreshHistoricalData = useCallback(async () => {
-    const canvas = canvasRef.current
-    if (!canvas) return
+    const container = containerRef.current
+    if (!container) return
 
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    const fetchHistoricalData = async (): Promise<number[] | null> => {
+    const fetchHistoricalData = async (): Promise<HistoricalDataPoint[] | null> => {
       try {
         const historicalData = await getHistoricalData(symbol, exchange, duration, liveDataEnabled);
 
         if (historicalData && historicalData.length > 0) {
           console.log(`✅ CHART DATA LOADED: ${symbol} (${duration}) — ${historicalData.length} points`);
-          return historicalData.map((point: HistoricalDataPoint) => point.close);
+          return historicalData;
         }
 
         // No data in DB and API not ready — show informative state, do NOT use fake data
@@ -119,158 +143,107 @@ function EnhancedChart({
       }
     }
 
-    const data = await fetchHistoricalData()
+    const points = await fetchHistoricalData()
 
-    if (!canvas) return
+    if (!containerRef.current) return
 
     // null means the fetch failed or returned nothing — error state already set above, skip drawing
-    if (data === null) return
+    if (points === null) return
 
-    const padding = 30
-    const chartWidth = width - padding * 2
-    const chartHeight = height - padding * 2
-    
-    // Set canvas size with device pixel ratio for crisp rendering
-    const devicePixelRatio = window.devicePixelRatio || 1
-    canvas.width = width * devicePixelRatio
-    canvas.height = height * devicePixelRatio
-
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.scale(devicePixelRatio, devicePixelRatio)
-    
-    // Clear canvas with white background
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, 0, width, height)
-    
-    if (data.length === 0) {
-      ctx.fillStyle = '#6b7280'
-      ctx.font = '14px system-ui, -apple-system, sans-serif'
-      ctx.textAlign = 'center'
-      ctx.fillText('No chart data available', width / 2, height / 2)
+    if (points.length === 0) {
+      setStats(null)
       return
     }
-    
-    // Find min/max for scaling
-    const minPrice = Math.min(...data)
-    const maxPrice = Math.max(...data)
-    const priceRange = maxPrice - minPrice || 1
-    
-    // Draw background grid
-    ctx.strokeStyle = '#f1f5f9'
-    ctx.lineWidth = 1
-    
-    // Horizontal grid lines
-    for (let i = 0; i <= 5; i++) {
-      const y = padding + (i * chartHeight / 5)
-      ctx.beginPath()
-      ctx.moveTo(padding, y)
-      ctx.lineTo(width - padding, y)
-      ctx.stroke()
-    }
-    
-    // Vertical grid lines
-    for (let i = 0; i <= 4; i++) {
-      const x = padding + (i * chartWidth / 4)
-      ctx.beginPath()
-      ctx.moveTo(x, padding)
-      ctx.lineTo(x, height - padding)
-      ctx.stroke()
-    }
-    
-    // Draw price labels on Y-axis
-    ctx.fillStyle = '#6b7280'
-    ctx.font = '11px system-ui, -apple-system, sans-serif'
-    ctx.textAlign = 'right'
-    
-    for (let i = 0; i <= 5; i++) {
-      const y = padding + (i * chartHeight / 5)
-      const price = maxPrice - (i * priceRange / 5)
-      ctx.fillText(`₹${price.toFixed(0)}`, padding - 5, y + 4)
-    }
-    
-    // Draw time labels on X-axis
-    ctx.textAlign = 'center'
-    const timeLabels = getTimeLabels(duration)
-    timeLabels.forEach((label, index) => {
-      const x = padding + (index * chartWidth / (timeLabels.length - 1))
-      ctx.fillText(label, x, height - 5)
-    })
-    
-    // Calculate performance
-    const lastPrice = data[data.length - 1]
-    const periodHigh = Math.max(...data)
-    const changeFromHighPercent = ((lastPrice - periodHigh) / periodHigh * 100)
-    
-    // Get colors based on performance
+
+    // Dedupe by day and sort ascending — lightweight-charts requires strictly ascending unique times
+    const byDay = new Map<string, number>()
+    points.forEach(p => byDay.set(toBusinessDay(p.date), p.close))
+    const seriesData = Array.from(byDay.entries())
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([time, value]) => ({ time, value }))
+
+    const lastPrice = seriesData[seriesData.length - 1].value
+    const periodHigh = Math.max(...seriesData.map(d => d.value))
+    const changeFromHighPercent = ((lastPrice - periodHigh) / periodHigh) * 100
     const colors = getChartColors(changeFromHighPercent)
-    
-    // Draw price line with dynamic color
-    ctx.strokeStyle = colors.lineColor
-    ctx.lineWidth = 2
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.beginPath()
-    
-    data.forEach((price: number, index: number) => {
-      const x = padding + (index * chartWidth / Math.max(data.length - 1, 1))
-      const y = padding + chartHeight - ((price - minPrice) / priceRange * chartHeight)
-      
-      if (index === 0) {
-        ctx.moveTo(x, y)
-      } else {
-        ctx.lineTo(x, y)
-      }
-    })
-    
-    ctx.stroke()
-    
-    // Fill area under the line with dynamic gradient
-    const gradient = ctx.createLinearGradient(0, padding, 0, padding + chartHeight)
-    gradient.addColorStop(0, colors.fillColorStart)
-    gradient.addColorStop(1, colors.fillColorEnd)
-    
-    ctx.fillStyle = gradient
-    ctx.beginPath()
-    
-    data.forEach((price: number, index: number) => {
-      const x = padding + (index * chartWidth / Math.max(data.length - 1, 1))
-      const y = padding + chartHeight - ((price - minPrice) / priceRange * chartHeight)
-      
-      if (index === 0) {
-        ctx.moveTo(x, y)
-      } else {
-        ctx.lineTo(x, y)
-      }
-    })
-    
-    const endX = padding + chartWidth
-    const bottomY = padding + chartHeight
-    ctx.lineTo(endX, bottomY)
-    ctx.lineTo(padding, bottomY)
-    ctx.closePath()
-    ctx.fill()
-    
-    // Draw current price dot with dynamic color
-    if (data.length > 0) {
-      const lastX = padding + chartWidth
-      const lastY = padding + chartHeight - ((lastPrice - minPrice) / priceRange * chartHeight)
-      
-      ctx.fillStyle = colors.dotColor
-      ctx.beginPath()
-      ctx.arc(lastX, lastY, 4, 0, Math.PI * 2)
-      ctx.fill()
-      
-      ctx.strokeStyle = '#ffffff'
-      ctx.lineWidth = 2
-      ctx.stroke()
-      
-      canvas.dataset.change = changeFromHighPercent.toFixed(2)
-      canvas.dataset.changePercent = `${changeFromHighPercent >= 0 ? '+' : ''}${changeFromHighPercent.toFixed(2)}%`
-      canvas.dataset.currentPrice = lastPrice.toFixed(2)
-      canvas.dataset.periodHigh = periodHigh.toFixed(2)
-      canvas.dataset.changeFromHighPercent = `${changeFromHighPercent.toFixed(2)}%`
+
+    // Recreate the chart fresh on every redraw (symbol/duration/refresh change) —
+    // mirrors the previous full-canvas-redraw model and keeps lifecycle simple.
+    if (chartRef.current) {
+      chartRef.current.remove()
+      chartRef.current = null
+      seriesRef.current = null
     }
-  }, [symbol, width, height, duration, onError, exchange, liveDataEnabled])
+
+    const chart = createChart(container, {
+      autoSize: true,
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: '#6b7280',
+        attributionLogo: false,
+      },
+      grid: {
+        vertLines: { visible: false },
+        horzLines: { color: '#f1f5f9', style: 0 },
+      },
+      rightPriceScale: { visible: false },
+      leftPriceScale: {
+        visible: true,
+        borderVisible: false,
+        scaleMargins: { top: 0.1, bottom: 0.1 },
+      },
+      timeScale: { visible: false },
+      crosshair: {
+        mode: CrosshairMode.Magnet,
+        vertLine: { color: '#9ca3af', width: 1, style: 3, labelVisible: false },
+        horzLine: { visible: false, labelVisible: false },
+      },
+      handleScroll: false,
+      handleScale: false,
+    })
+
+    const series = chart.addSeries(AreaSeries, {
+      priceScaleId: 'left',
+      priceFormat: { type: 'custom', formatter: (p: number) => `₹${p.toFixed(0)}`, minMove: 0.01 },
+      lineColor: colors.lineColor,
+      topColor: colors.topColor,
+      bottomColor: colors.bottomColor,
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 4,
+      crosshairMarkerBorderColor: '#ffffff',
+      crosshairMarkerBorderWidth: 2,
+    })
+
+    series.setData(seriesData)
+    chart.timeScale().applyOptions({ rightOffset: 0 })
+    chart.timeScale().fitContent()
+
+    chart.subscribeCrosshairMove(param => {
+      if (!param.time || !param.point || !containerRef.current) {
+        setTooltip(prev => (prev ? { ...prev, visible: false } : null))
+        return
+      }
+      const value = param.seriesData.get(series)
+      if (!value || !('value' in value)) {
+        setTooltip(prev => (prev ? { ...prev, visible: false } : null))
+        return
+      }
+      setTooltip({
+        visible: true,
+        x: param.point.x,
+        y: param.point.y,
+        price: `₹${(value as { value: number }).value.toFixed(2)}`,
+        date: String(param.time),
+      })
+    })
+
+    chartRef.current = chart
+    seriesRef.current = series
+    setStats({ currentPrice: lastPrice, periodHigh, changeFromHighPercent })
+  }, [symbol, duration, onError, exchange, liveDataEnabled])
 
   // Register refresh function with parent (separate effect)
   useEffect(() => {
@@ -280,30 +253,24 @@ function EnhancedChart({
   }, [symbol, onRefreshReady, refreshHistoricalData])
 
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
     let isMounted = true
 
     const drawChart = async () => {
       setIsLoading(true)
       setError(null)
-      
+
       // Clear any previous error state with parent
       if (onError) {
         onError(symbol, false)
       }
-      
+
       try {
         await refreshHistoricalData()
       } catch (error) {
         console.error('Failed to draw chart:', error)
         const errorMessage = 'Failed to load chart'
         setError(errorMessage)
-        
+
         // Notify parent about error
         if (onError) {
           onError(symbol, true, errorMessage)
@@ -319,12 +286,21 @@ function EnhancedChart({
     if (enabled) {
       drawChart()
     }
-    
+
     return () => {
       isMounted = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, duration, liveDataEnabled, enabled]) // enabled gates the initial fetch
+
+  // Tear down the chart instance on unmount
+  useEffect(() => {
+    return () => {
+      chartRef.current?.remove()
+      chartRef.current = null
+      seriesRef.current = null
+    }
+  }, [])
 
   const handleRefresh = async () => {
     setIsLoading(true)
@@ -342,7 +318,7 @@ function EnhancedChart({
       console.error('Failed to refresh chart data:', error)
       const errorMessage = 'Refresh failed'
       setError(errorMessage)
-      
+
       // Notify parent about error
       if (onError) {
         onError(symbol, true, errorMessage)
@@ -352,28 +328,10 @@ function EnhancedChart({
     }
   }
 
-  const getTimeLabels = (duration: string) => {
-    switch (duration) {
-      case '1month':
-        return ['4w ago', '3w ago', '2w ago', '1w ago', 'Now']
-      case '6months':
-        return ['6M ago', '4M ago', '2M ago', 'Now']
-      case '1year':
-        return ['1Y ago', '9M ago', '6M ago', '3M ago', 'Now']
-      case '3years':
-        return ['3Y ago', '2Y ago', '1Y ago', 'Now']
-      case '5years':
-        return ['5Y ago', '3Y ago', '1Y ago', 'Now']
-      default:
-        return ['Start', 'Now']
-    }
-  }
-
-  const canvas = canvasRef.current
-  const changePercent = canvas?.dataset.changePercent || '+0.00%'
-  const change = parseFloat(canvas?.dataset.change || '0')
-  const currentPrice = canvas?.dataset.currentPrice || '0'
-  const periodHigh = canvas?.dataset.periodHigh || '0'
+  const currentPrice = stats?.currentPrice.toFixed(2) ?? '0.00'
+  const periodHigh = stats?.periodHigh.toFixed(2) ?? '0.00'
+  const changeFromHighPercent = stats?.changeFromHighPercent ?? 0
+  const changePercentLabel = `${changeFromHighPercent >= 0 ? '+' : ''}${changeFromHighPercent.toFixed(2)}%`
 
   // Generate TradingView URL
   const getTradingViewUrl = (symbol: string) => {
@@ -443,10 +401,10 @@ function EnhancedChart({
             <div className="d-flex align-items-center gap-1" style={{ fontSize: '11px' }}>
               <span className="text-muted">₹{currentPrice}</span>
               <span
-                className={`badge ${change >= 0 ? 'bg-success' : 'bg-danger'}`}
+                className={`badge ${changeFromHighPercent >= 0 ? 'bg-success' : 'bg-danger'}`}
                 style={{ fontSize: '10px', padding: '2px 5px' }}
               >
-                {changePercent}
+                {changePercentLabel}
               </span>
             </div>
             <div className="text-muted" style={{ fontSize: '10px' }}>
@@ -456,15 +414,27 @@ function EnhancedChart({
         )}
       </div>
       <div className="position-relative">
-        <canvas 
-          ref={canvasRef}
+        <div
+          ref={containerRef}
           className="border rounded bg-white w-100"
-          style={{
-            width: '100%',
-            height: 'auto',
-            aspectRatio: `${width}/${height}`
-          }}
+          style={{ height, minHeight: height }}
         />
+        {tooltip?.visible && (
+          <div
+            className="position-absolute bg-dark text-white px-2 py-1 rounded"
+            style={{
+              fontSize: '10px',
+              pointerEvents: 'none',
+              top: Math.max(0, tooltip.y - 34),
+              left: Math.min(Math.max(tooltip.x, 30), width - 30),
+              transform: 'translateX(-50%)',
+              whiteSpace: 'nowrap',
+              zIndex: 2,
+            }}
+          >
+            {tooltip.date} · {tooltip.price}
+          </div>
+        )}
         {/* Only show overlay when user explicitly wants live data but API is unavailable */}
         {!kiteAPI.isReady() && liveDataEnabled && (
           <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-warning bg-opacity-75 rounded">
