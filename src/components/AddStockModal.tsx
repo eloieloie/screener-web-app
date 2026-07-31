@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { motion } from 'motion/react'
 import type { AddStockForm } from '../types/Stock'
 import { getAvailableSymbols } from '../services/stockService'
 
@@ -118,24 +119,32 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
 
   return (
     <>
-      {/* Bootstrap Modal Backdrop */}
-      <div 
-        className="modal-backdrop fade show"
+      {/* Modal Backdrop */}
+      <motion.div
+        className="modal-backdrop show"
         onClick={onClose}
-      ></div>
-      
-      {/* Bootstrap Modal */}
-      <div 
-        className="modal fade show d-block" 
-        tabIndex={-1} 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 0.5 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.2 }}
+      />
+
+      {/* Modal */}
+      <div
+        className="modal d-block"
+        tabIndex={-1}
         role="dialog"
         style={{ zIndex: 1050 }}
         onClick={onClose}
       >
-        <div 
-          className="modal-dialog modal-lg modal-dialog-centered" 
-          role="document" 
+        <motion.div
+          className="modal-dialog modal-lg modal-dialog-centered"
+          role="document"
           onClick={e => e.stopPropagation()}
+          initial={{ opacity: 0, y: -30, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -20, scale: 0.95 }}
+          transition={{ duration: 0.25, ease: 'easeOut' }}
         >
           <div className="modal-content">
             <div className="modal-header">
@@ -255,15 +264,19 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
           </div>
 
           <div className="modal-footer">
-            <button 
-              type="button" 
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              type="button"
               className="btn btn-secondary"
-              onClick={onClose} 
+              onClick={onClose}
               disabled={isSubmitting}
             >
               Cancel
-            </button>
-            <button 
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
               type="button"
               className="btn btn-primary"
               onClick={handleSubmit}
@@ -277,11 +290,11 @@ const AddStockModal = ({ onAddStock, onClose }: AddStockModalProps) => {
               ) : (
                 'Add Stock'
               )}
-            </button>
+            </motion.button>
           </div>
         </div>
+        </motion.div>
       </div>
-    </div>
     </>
   )
 }

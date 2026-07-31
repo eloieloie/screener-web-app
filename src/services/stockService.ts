@@ -25,6 +25,68 @@ const HISTORICAL_DATA_COLLECTION = 'historicalData';
 // Create KiteConnect API instance
 const kiteAPI = KiteConnectAPI.getInstance();
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Firestore write throttling
+//
+// Firestore rate-limits how fast writes can ramp up on a collection (the
+// "500/50/5" rule) — a burst of concurrent writes (e.g. 10 chart cards all
+// caching fresh historical data at once when ChartsPage activates a batch)
+// can get rejected with `resource-exhausted` well before any billing quota
+// is involved. We smooth this out with a small concurrency gate so at most
+// a handful of writes are in flight at once, plus exponential-backoff retry
+// so a rejected write self-heals instead of silently vanishing.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MAX_CONCURRENT_WRITES = 3;
+const WRITE_RETRY_ATTEMPTS = 4;
+
+let activeWrites = 0;
+const writeQueue: Array<() => void> = [];
+
+const acquireWriteSlot = (): Promise<void> => {
+  if (activeWrites < MAX_CONCURRENT_WRITES) {
+    activeWrites++;
+    return Promise.resolve();
+  }
+  return new Promise<void>(resolve => writeQueue.push(resolve)).then(() => {
+    activeWrites++;
+  });
+};
+
+const releaseWriteSlot = (): void => {
+  activeWrites--;
+  const next = writeQueue.shift();
+  if (next) next();
+};
+
+const isResourceExhausted = (error: unknown): boolean =>
+  (error as { code?: string })?.code === 'resource-exhausted';
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Runs `fn` through the concurrency gate, retrying with exponential backoff
+// (+ jitter) if Firestore rejects the write as resource-exhausted.
+const withWriteThrottle = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+  await acquireWriteSlot();
+  try {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (isResourceExhausted(error) && attempt < WRITE_RETRY_ATTEMPTS) {
+          const delay = 500 * 2 ** attempt + Math.random() * 250;
+          console.warn(`⏳ Firestore write throttled (${label}) — retrying in ${Math.round(delay)}ms [attempt ${attempt + 1}/${WRITE_RETRY_ATTEMPTS}]`);
+          await sleep(delay);
+          continue;
+        }
+        throw error;
+      }
+    }
+  } finally {
+    releaseWriteSlot();
+  }
+};
+
 // Cached historical data interface
 interface CachedHistoricalData {
   symbol: string;
@@ -84,7 +146,7 @@ const saveHistoricalDataToCache = async (
       updatedAt: Timestamp.now()
     };
     
-    await setDoc(docRef, cachedData);
+    await withWriteThrottle(`historicalData:${cacheKey}`, () => setDoc(docRef, cachedData));
     console.log(`✅ SUCCESSFULLY CACHED historical data for ${symbol} (${duration}) - ${data.length} points`);
   } catch (error) {
     console.error('❌ ERROR saving historical data to cache:', error);
@@ -309,12 +371,12 @@ const findExistingStock = async (symbol: string, exchange: string): Promise<{ id
 const updateStockTags = async (stockId: string, newTags: string[]): Promise<void> => {
   try {
     const stockRef = doc(db, STOCKS_COLLECTION, stockId);
-    
+
     // Use arrayUnion to add new tags without duplicates
-    await updateDoc(stockRef, {
+    await withWriteThrottle(`updateTags:${stockId}`, () => updateDoc(stockRef, {
       tags: arrayUnion(...newTags),
       updatedAt: Timestamp.now()
-    });
+    }));
   } catch (error) {
     console.error('Error updating stock tags:', error);
     throw new Error('Failed to update stock tags');
@@ -347,10 +409,10 @@ const saveCachedPriceData = async (stockId: string, stockData: Stock): Promise<v
       Object.entries(rawCachedPriceData).filter(([, value]) => value !== undefined)
     );
     
-    await updateDoc(stockRef, {
+    await withWriteThrottle(`priceData:${stockId}`, () => updateDoc(stockRef, {
       cachedPriceData: cachedPriceData,
       updatedAt: Timestamp.now()
-    });
+    }));
   } catch (error) {
     console.error('Error saving cached price data:', error);
     throw new Error('Failed to save price data');
@@ -491,7 +553,10 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
         updatedAt: Timestamp.now()
       };
 
-      const docRef = await addDoc(collection(db, STOCKS_COLLECTION), stockDocument);
+      const docRef = await withWriteThrottle(
+        `addStock:${stockData.symbol}`,
+        () => addDoc(collection(db, STOCKS_COLLECTION), stockDocument)
+      );
 
       // Return basic stock structure
       return {
@@ -550,7 +615,10 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
       cachedPriceData: cachedPriceData
     };
 
-    const docRef = await addDoc(collection(db, STOCKS_COLLECTION), stockDocument);
+    const docRef = await withWriteThrottle(
+      `addStock:${stockData.symbol}`,
+      () => addDoc(collection(db, STOCKS_COLLECTION), stockDocument)
+    );
 
     // Return the stock data with cached price info
     const returnCachedData = {
@@ -873,7 +941,10 @@ export const bulkAddStockMetadataOnly = async (
             if (entry.instrument_token != null) stockDocument.instrument_token = entry.instrument_token;
             if (entry.isin) stockDocument.isin = entry.isin;
 
-            await addDoc(collection(db, STOCKS_COLLECTION), stockDocument);
+            await withWriteThrottle(
+              `bulkImport:${entry.symbol}`,
+              () => addDoc(collection(db, STOCKS_COLLECTION), stockDocument)
+            );
             result.imported++;
           }
         } catch (err) {
@@ -918,7 +989,7 @@ export const deleteStocksByTag = async (
     const batch = writeBatch(db);
     const chunk = docs.slice(i, i + CHUNK);
     chunk.forEach(d => batch.delete(d.ref));
-    await batch.commit();
+    await withWriteThrottle(`deleteBatch:${tag}`, () => batch.commit());
     deleted += chunk.length;
     onProgress?.(deleted, total);
   }

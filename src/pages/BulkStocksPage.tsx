@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
 import type { AddStockForm } from '../types/Stock'
 import { addStock as addStockToFirebase } from '../services/stockService'
 
@@ -1102,7 +1103,9 @@ const BulkStocksPage = () => {
           <div className="card-body">
             {/* Action Buttons */}
             <div className="d-flex gap-2 mb-3">
-              <button 
+              <motion.button
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
                 className="btn btn-primary"
                 onClick={processAllStocks}
                 disabled={isProcessing || pendingCount === 0}
@@ -1117,96 +1120,119 @@ const BulkStocksPage = () => {
                 ) : (
                   `🚀 Add ${pendingCount} Stocks`
                 )}
-              </button>
-              
-              <button 
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
                 className="btn btn-outline-secondary"
                 onClick={clearAll}
                 disabled={isProcessing}
               >
                 🗑️ Clear All
-              </button>
+              </motion.button>
             </div>
 
             {/* Stock List */}
             <div className="row g-2">
-              {stocks.map((stock) => (
-                <div key={stock.id} className="col-md-6 col-lg-4">
-                  <div className={`card border-0 shadow-sm h-100 ${
-                    stock.status === 'success' ? 'border-success' : 
-                    stock.status === 'error' ? 'border-danger' : ''
-                  }`}>
-                    <div className="card-body p-3">
-                      <div className="d-flex justify-content-between align-items-start mb-2">
-                        <div>
-                          <h6 className="card-title mb-1 d-flex align-items-center">
-                            <span className={`me-2 ${getStatusColor(stock.status)}`}>
-                              {getStatusIcon(stock.status)}
-                            </span>
-                            {stock.symbol}
-                            <span className={`badge ms-2 ${stock.exchange === 'NSE' ? 'bg-primary' : 'bg-warning'}`}>
-                              {stock.exchange}
-                            </span>
-                          </h6>
-                          <p className="card-text small text-muted mb-1">{stock.name}</p>
-                          {stock.tags && stock.tags.length > 0 && (
-                            <div className="mb-0">
-                              {stock.tags.map((tag, index) => (
-                                <span key={index} className="badge bg-light text-dark me-1 mb-1" style={{ fontSize: '0.7em' }}>
-                                  🏷️ {tag}
-                                </span>
-                              ))}
-                            </div>
+              <AnimatePresence>
+                {stocks.map((stock) => (
+                  <motion.div
+                    key={stock.id}
+                    className="col-md-6 col-lg-4"
+                    layout
+                    initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={{ duration: 0.25 }}
+                  >
+                    <div className={`card border-0 shadow-sm h-100 ${
+                      stock.status === 'success' ? 'border-success' :
+                      stock.status === 'error' ? 'border-danger' : ''
+                    }`}>
+                      <div className="card-body p-3">
+                        <div className="d-flex justify-content-between align-items-start mb-2">
+                          <div>
+                            <h6 className="card-title mb-1 d-flex align-items-center">
+                              <AnimatePresence mode="popLayout">
+                                <motion.span
+                                  key={stock.status}
+                                  className={`me-2 ${getStatusColor(stock.status)}`}
+                                  initial={{ scale: 0.5, opacity: 0 }}
+                                  animate={{ scale: 1, opacity: 1 }}
+                                  exit={{ scale: 0.5, opacity: 0 }}
+                                  transition={{ duration: 0.2 }}
+                                >
+                                  {getStatusIcon(stock.status)}
+                                </motion.span>
+                              </AnimatePresence>
+                              {stock.symbol}
+                              <span className={`badge ms-2 ${stock.exchange === 'NSE' ? 'bg-primary' : 'bg-warning'}`}>
+                                {stock.exchange}
+                              </span>
+                            </h6>
+                            <p className="card-text small text-muted mb-1">{stock.name}</p>
+                            {stock.tags && stock.tags.length > 0 && (
+                              <div className="mb-0">
+                                {stock.tags.map((tag, index) => (
+                                  <span key={index} className="badge bg-light text-dark me-1 mb-1" style={{ fontSize: '0.7em' }}>
+                                    🏷️ {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          {stock.status !== 'adding' && (
+                            <motion.button
+                              whileHover={{ scale: 1.15 }}
+                              whileTap={{ scale: 0.9 }}
+                              className="btn btn-sm btn-outline-danger"
+                              onClick={() => removeStock(stock.id)}
+                              disabled={isProcessing}
+                            >
+                              ×
+                            </motion.button>
                           )}
                         </div>
-                        {stock.status !== 'adding' && (
-                          <button 
-                            className="btn btn-sm btn-outline-danger"
-                            onClick={() => removeStock(stock.id)}
-                            disabled={isProcessing}
-                          >
-                            ×
-                          </button>
+
+                        {stock.status === 'adding' && (
+                          <div className="d-flex align-items-center">
+                            <div className="spinner-border spinner-border-sm me-2" role="status">
+                              <span className="visually-hidden">Adding...</span>
+                            </div>
+                            <small className="text-primary">Adding to portfolio...</small>
+                          </div>
+                        )}
+
+                        {stock.status === 'error' && stock.error && (
+                          <div className="mt-2">
+                            <small className="text-danger">❌ {stock.error}</small>
+                          </div>
+                        )}
+
+                        {stock.status === 'success' && (
+                          <div className="mt-2">
+                            <small className="text-success">
+                              ✅ Successfully added!
+                              {stock.tags?.some(tag => tag.startsWith('fallback-')) && (
+                                <span className="badge bg-info ms-1 text-dark" style={{ fontSize: '0.7em' }}>
+                                  📋 Fallback Exchange
+                                </span>
+                              )}
+                            </small>
+                          </div>
+                        )}
+
+                        {stock.status === 'updated' && (
+                          <div className="mt-2">
+                            <small className="text-info">🔄 Tags updated (stock already exists)</small>
+                          </div>
                         )}
                       </div>
-                      
-                      {stock.status === 'adding' && (
-                        <div className="d-flex align-items-center">
-                          <div className="spinner-border spinner-border-sm me-2" role="status">
-                            <span className="visually-hidden">Adding...</span>
-                          </div>
-                          <small className="text-primary">Adding to portfolio...</small>
-                        </div>
-                      )}
-                      
-                      {stock.status === 'error' && stock.error && (
-                        <div className="mt-2">
-                          <small className="text-danger">❌ {stock.error}</small>
-                        </div>
-                      )}
-                      
-                      {stock.status === 'success' && (
-                        <div className="mt-2">
-                          <small className="text-success">
-                            ✅ Successfully added!
-                            {stock.tags?.some(tag => tag.startsWith('fallback-')) && (
-                              <span className="badge bg-info ms-1 text-dark" style={{ fontSize: '0.7em' }}>
-                                📋 Fallback Exchange
-                              </span>
-                            )}
-                          </small>
-                        </div>
-                      )}
-                      
-                      {stock.status === 'updated' && (
-                        <div className="mt-2">
-                          <small className="text-info">🔄 Tags updated (stock already exists)</small>
-                        </div>
-                      )}
                     </div>
-                  </div>
-                </div>
-              ))}
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
           </div>
         </div>

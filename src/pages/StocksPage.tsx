@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
 import type { Stock, AddStockForm } from '../types/Stock'
 import StockTable from '../components/StockTable'
 import AddStockModal from '../components/AddStockModal'
@@ -146,12 +147,14 @@ const StocksPage = ({ onNavigateToChartsWithTag }: StocksPageProps) => {
               )}
             </button>
           )}
-          <button
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             className="btn btn-success"
             onClick={() => setIsModalOpen(true)}
           >
             <span className="me-1">+</span>Add Stock
-          </button>
+          </motion.button>
           <div className="badge bg-secondary fs-6">
             {stocks.length} stock{stocks.length !== 1 ? 's' : ''} tracked
           </div>
@@ -200,7 +203,12 @@ const StocksPage = ({ onNavigateToChartsWithTag }: StocksPageProps) => {
 
       {/* ── Tag cloud (shown by default whenever tags exist) ─────────────── */}
       {getUniqueTags().length > 0 && (
-        <div className="card mb-4">
+        <motion.div
+          className="card mb-4"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+        >
           <div className="card-header bg-light">
             <div className="d-flex justify-content-between align-items-center">
               <h6 className="mb-0">🏷️ <span className="ms-2">Stock Tags</span>
@@ -212,26 +220,42 @@ const StocksPage = ({ onNavigateToChartsWithTag }: StocksPageProps) => {
             </div>
           </div>
           <div className="card-body py-3">
-            <div className="d-flex flex-wrap gap-2 align-items-center">
+            <motion.div
+              className="d-flex flex-wrap gap-2 align-items-center"
+              initial="hidden"
+              animate="visible"
+              variants={{
+                hidden: {},
+                visible: { transition: { staggerChildren: 0.02 } },
+              }}
+            >
               {getUniqueTags().map((tag, index) => {
                 const stocksWithTag = stocks.filter(stock => stock.tags?.includes(tag))
                 return (
-                  <button
+                  <motion.button
                     key={index}
+                    variants={{
+                      hidden: { opacity: 0, y: 8, scale: 0.9 },
+                      visible: { opacity: 1, y: 0, scale: 1 },
+                    }}
+                    whileHover={{ scale: 1.06 }}
+                    whileTap={{ scale: 0.95 }}
                     className={`btn btn-sm position-relative ${selectedTag === tag ? 'btn-primary' : 'btn-outline-primary'}`}
                     onClick={() => { onNavigateToChartsWithTag(tag); }}
-                    style={{ borderRadius: '20px', fontWeight: '500', transition: 'all 0.2s ease' }}
+                    style={{ borderRadius: '20px', fontWeight: '500' }}
                     title={`View charts for ${stocksWithTag.length} stock${stocksWithTag.length !== 1 ? 's' : ''} with tag "${tag}"`}
                   >
                     {tag}
                     <span className="badge bg-primary text-white ms-2" style={{ fontSize: '0.65em' }}>
                       {stocksWithTag.length}
                     </span>
-                  </button>
+                  </motion.button>
                 )
               })}
               <div className="ms-3 border-start ps-3">
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.06 }}
+                  whileTap={{ scale: 0.95 }}
                   className="btn btn-success btn-sm"
                   onClick={() => onNavigateToChartsWithTag('')}
                   style={{ borderRadius: '20px', fontWeight: '500' }}
@@ -240,18 +264,27 @@ const StocksPage = ({ onNavigateToChartsWithTag }: StocksPageProps) => {
                   <span className="badge bg-light text-success ms-2" style={{ fontSize: '0.65em' }}>
                     {stocks.length}
                   </span>
-                </button>
+                </motion.button>
               </div>
-            </div>
+            </motion.div>
           </div>
-        </div>
+        </motion.div>
       )}
 
-      {error && (
-        <div className="alert alert-danger" role="alert">
-          {error}
-        </div>
-      )}
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            className="alert alert-danger"
+            role="alert"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            {error}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {isFilterActive && filteredStocks.length > 0 && filteredStocks.every(stock => stock.price === 0) && (
         <div className="alert alert-info" role="alert">
@@ -313,12 +346,14 @@ const StocksPage = ({ onNavigateToChartsWithTag }: StocksPageProps) => {
         />
       )}
 
-      {isModalOpen && (
-        <AddStockModal 
-          onAddStock={addStock}
-          onClose={() => setIsModalOpen(false)}
-        />
-      )}
+      <AnimatePresence>
+        {isModalOpen && (
+          <AddStockModal
+            onAddStock={addStock}
+            onClose={() => setIsModalOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

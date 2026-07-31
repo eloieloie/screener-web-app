@@ -16,6 +16,7 @@
     "firebase-functions": "^6.4.0",
     "kiteconnect": "^5.1.0",
     "lightweight-charts": "^5.2.0",
+    "motion": "^12.43.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },

@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
 import type { Stock } from '../types/Stock'
 import SimpleChart from './SimpleChart'
 
@@ -127,9 +128,14 @@ const StockTable = ({ stocks, onRemoveStock, onNavigateToChartsWithTag, onRefres
               </tr>
             </thead>
             <tbody>
-              {sortedStocks.map((stock) => (
+              {sortedStocks.map((stock, rowIndex) => (
                 <React.Fragment key={stock.id}>
-                  <tr className="align-middle">
+                  <motion.tr
+                    className="align-middle"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.25, delay: Math.min(rowIndex * 0.03, 0.5) }}
+                  >
                     <td className="border-0">
                       <div>
                         <div className="d-flex align-items-center">
@@ -147,25 +153,17 @@ const StockTable = ({ stocks, onRemoveStock, onNavigateToChartsWithTag, onRefres
                       {stock.tags && stock.tags.length > 0 ? (
                         <div className="d-flex flex-wrap gap-1">
                           {stock.tags.map((tag, index) => (
-                            <button
+                            <motion.button
                               key={index}
+                              whileHover={{ scale: 1.08, backgroundColor: '#e9ecef' }}
+                              whileTap={{ scale: 0.95 }}
                               className="badge bg-light text-dark border-0"
-                              style={{ 
-                                fontSize: '0.65em',
-                                cursor: 'pointer',
-                                transition: 'background-color 0.2s'
-                              }}
+                              style={{ fontSize: '0.65em', cursor: 'pointer' }}
                               onClick={() => onNavigateToChartsWithTag(tag)}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = '#e9ecef'
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = '#f8f9fa'
-                              }}
                               title={`View charts for stocks tagged with "${tag}"`}
                             >
                               🏷️ {tag}
-                            </button>
+                            </motion.button>
                           ))}
                         </div>
                       ) : (
@@ -185,7 +183,9 @@ const StockTable = ({ stocks, onRemoveStock, onNavigateToChartsWithTag, onRefres
                     <td className="border-0 text-center">
                       <div className="d-flex gap-1 justify-content-center">
                         {onRefreshStock && (
-                          <button 
+                          <motion.button
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
                             className="btn btn-sm btn-outline-success"
                             onClick={() => handleRefreshStock(stock)}
                             disabled={refreshingStocks.has(stock.id)}
@@ -198,61 +198,78 @@ const StockTable = ({ stocks, onRemoveStock, onNavigateToChartsWithTag, onRefres
                             ) : (
                               '🔄'
                             )}
-                          </button>
+                          </motion.button>
                         )}
-                        <button 
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
                           className={`btn btn-sm ${expandedCharts.has(stock.id) ? 'btn-primary' : 'btn-outline-primary'}`}
                           onClick={() => toggleChart(stock.id)}
                         >
                           📊 {expandedCharts.has(stock.id) ? 'Hide' : 'Show'}
-                        </button>
-                        <button 
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
                           className="btn btn-sm btn-outline-danger"
                           onClick={() => onRemoveStock(stock.id)}
                           title="Remove stock"
                         >
                           🗑️
-                        </button>
+                        </motion.button>
                       </div>
                     </td>
-                  </tr>
-                  {expandedCharts.has(stock.id) && (
-                    <tr>
-                      <td colSpan={4} className="border-0 bg-light p-3">
-                        <div className="d-flex justify-content-center">
-                          <SimpleChart 
-                            symbol={stock.symbol} 
-                            width={600} 
-                            height={200}
-                            className="w-100"
-                          />
-                        </div>
-                        {/* Additional stock stats */}
-                        {(stock.dayHigh || stock.dayLow || stock.fiftyTwoWeekHigh || stock.fiftyTwoWeekLow || stock.marketCap) && (
-                          <div className="row mt-3 g-3">
-                            {stock.dayHigh && stock.dayLow && stock.dayHigh > 0 && stock.dayLow > 0 && (
-                              <div className="col-md-3">
-                                <small className="text-muted d-block">Day Range</small>
-                                <strong>₹{stock.dayLow.toFixed(2)} - ₹{stock.dayHigh.toFixed(2)}</strong>
+                  </motion.tr>
+                  <AnimatePresence>
+                    {expandedCharts.has(stock.id) && (
+                      <motion.tr
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <td colSpan={4} className="border-0 bg-light p-3">
+                          <motion.div
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.25, delay: 0.05 }}
+                          >
+                            <div className="d-flex justify-content-center">
+                              <SimpleChart
+                                symbol={stock.symbol}
+                                width={600}
+                                height={200}
+                                className="w-100"
+                              />
+                            </div>
+                            {/* Additional stock stats */}
+                            {(stock.dayHigh || stock.dayLow || stock.fiftyTwoWeekHigh || stock.fiftyTwoWeekLow || stock.marketCap) && (
+                              <div className="row mt-3 g-3">
+                                {stock.dayHigh && stock.dayLow && stock.dayHigh > 0 && stock.dayLow > 0 && (
+                                  <div className="col-md-3">
+                                    <small className="text-muted d-block">Day Range</small>
+                                    <strong>₹{stock.dayLow.toFixed(2)} - ₹{stock.dayHigh.toFixed(2)}</strong>
+                                  </div>
+                                )}
+                                {stock.fiftyTwoWeekHigh && stock.fiftyTwoWeekLow && stock.fiftyTwoWeekHigh > 0 && stock.fiftyTwoWeekLow > 0 && (
+                                  <div className="col-md-3">
+                                    <small className="text-muted d-block">52W Range</small>
+                                    <strong>₹{stock.fiftyTwoWeekLow.toFixed(2)} - ₹{stock.fiftyTwoWeekHigh.toFixed(2)}</strong>
+                                  </div>
+                                )}
+                                {stock.marketCap && stock.marketCap !== '0' && stock.marketCap !== '' && (
+                                  <div className="col-md-3">
+                                    <small className="text-muted d-block">Market Cap</small>
+                                    <strong>{stock.marketCap}</strong>
+                                  </div>
+                                )}
                               </div>
                             )}
-                            {stock.fiftyTwoWeekHigh && stock.fiftyTwoWeekLow && stock.fiftyTwoWeekHigh > 0 && stock.fiftyTwoWeekLow > 0 && (
-                              <div className="col-md-3">
-                                <small className="text-muted d-block">52W Range</small>
-                                <strong>₹{stock.fiftyTwoWeekLow.toFixed(2)} - ₹{stock.fiftyTwoWeekHigh.toFixed(2)}</strong>
-                              </div>
-                            )}
-                            {stock.marketCap && stock.marketCap !== '0' && stock.marketCap !== '' && (
-                              <div className="col-md-3">
-                                <small className="text-muted d-block">Market Cap</small>
-                                <strong>{stock.marketCap}</strong>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )}
+                          </motion.div>
+                        </td>
+                      </motion.tr>
+                    )}
+                  </AnimatePresence>
                 </React.Fragment>
               ))}
             </tbody>

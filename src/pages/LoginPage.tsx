@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
 import { collection, getDocs, doc, setDoc, getDoc } from 'firebase/firestore'
 import { auth, db } from '../config/firebase'
@@ -95,10 +96,23 @@ export default function LoginPage() {
 
   return (
     <div className="min-vh-100 d-flex align-items-center justify-content-center" style={{ background: '#f0f2f5' }}>
-      <div className="card border-0 shadow" style={{ width: '420px' }}>
+      <motion.div
+        className="card border-0 shadow"
+        style={{ width: '420px' }}
+        initial={{ opacity: 0, y: 24, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.4, ease: 'easeOut' }}
+      >
         <div className="card-body p-5">
           <div className="text-center mb-4">
-            <div style={{ fontSize: '2.5rem', lineHeight: 1.2 }}>📊</div>
+            <motion.div
+              style={{ fontSize: '2.5rem', lineHeight: 1.2 }}
+              initial={{ scale: 0, rotate: -15 }}
+              animate={{ scale: 1, rotate: 0 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 15, delay: 0.1 }}
+            >
+              📊
+            </motion.div>
             <h1 className="h4 fw-bold mt-2 mb-1">Stock Screener</h1>
             <p className="text-muted small mb-0">
               {mode === 'setup' ? 'Create your admin account to get started' : 'Sign in to continue'}
@@ -106,9 +120,14 @@ export default function LoginPage() {
           </div>
 
           {mode === 'setup' && (
-            <div className="alert alert-info py-2 small mb-3">
+            <motion.div
+              className="alert alert-info py-2 small mb-3"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              transition={{ duration: 0.25 }}
+            >
               <strong>First-time setup</strong> — no admin account exists yet. Create one below.
-            </div>
+            </motion.div>
           )}
 
           <form onSubmit={mode === 'setup' ? handleSetup : handleLogin}>
@@ -148,17 +167,33 @@ export default function LoginPage() {
                 />
               </div>
             )}
-            {error && (
-              <div className="alert alert-danger py-2 small mb-3">{error}</div>
-            )}
-            <button type="submit" className="btn btn-primary w-100 py-2" disabled={submitting}>
+            <AnimatePresence>
+              {error && (
+                <motion.div
+                  className="alert alert-danger py-2 small mb-3"
+                  initial={{ opacity: 0, y: -6, height: 0 }}
+                  animate={{ opacity: 1, y: 0, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {error}
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              type="submit"
+              className="btn btn-primary w-100 py-2"
+              disabled={submitting}
+            >
               {submitting ? (
                 <>
                   <span className="spinner-border spinner-border-sm me-2" role="status" />
                   {mode === 'setup' ? 'Creating account...' : 'Signing in...'}
                 </>
               ) : mode === 'setup' ? 'Create Admin Account' : 'Sign In'}
-            </button>
+            </motion.button>
           </form>
 
           <div className="d-flex align-items-center my-4">
@@ -167,7 +202,9 @@ export default function LoginPage() {
             <hr className="flex-grow-1" />
           </div>
 
-          <button
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             className="btn btn-outline-secondary w-100 py-2 d-flex align-items-center justify-content-center gap-2"
             onClick={handleGoogle}
             disabled={submitting}
@@ -179,9 +216,9 @@ export default function LoginPage() {
               <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
             </svg>
             Sign in with Google
-          </button>
+          </motion.button>
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 }

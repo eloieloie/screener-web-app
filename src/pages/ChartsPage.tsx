@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { motion } from 'motion/react'
 import type { Stock } from '../types/Stock'
 import EnhancedChart from '../components/EnhancedChart'
 import { subscribeToStocks } from '../services/stockService'
@@ -322,14 +323,16 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
           <h5 className="card-title mb-3">⏱️ Time Period</h5>
           <div className="btn-group" role="group" aria-label="Duration selector">
             {durationOptions.map((option) => (
-              <button
+              <motion.button
                 key={option.value}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
                 type="button"
                 className={`btn ${selectedDuration === option.value ? 'btn-primary' : 'btn-outline-primary'}`}
                 onClick={() => setSelectedDuration(option.value)}
               >
                 {option.icon} {option.label}
-              </button>
+              </motion.button>
             ))}
           </div>
           <div className="mt-2">
@@ -373,28 +376,54 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
           gap: '0.75rem'
         }}
       >
-        {filteredStocks.map((stock) => (
-          <div
-            key={stock.id}
-            className="card h-100 chart-card"
-            style={{ border: '1px solid #e5e7eb', borderRadius: '10px' }}
-          >
-            <div className="card-body p-2">
-              <EnhancedChart
-                symbol={stock.symbol}
-                duration={selectedDuration}
-                width={260}
-                height={165}
-                className="w-100"
-                onError={handleChartError}
-                onRefreshReady={registerChartRef}
-                liveDataEnabled={liveDataEnabled}
-                exchange={stock.exchange}
-                enabled={enabledStocks.has(stock.id)}
-              />
-            </div>
-          </div>
-        ))}
+        {filteredStocks.map((stock) => {
+          const isFailed = failedCharts.has(stock.symbol)
+          return (
+            <motion.div
+              key={stock.id}
+              className="card h-100 chart-card position-relative"
+              style={{
+                border: isFailed ? '1px solid #f5c2c7' : '1px solid #e5e7eb',
+                borderRadius: '10px',
+                overflow: 'hidden'
+              }}
+              initial={{ opacity: 0, y: 12 }}
+              animate={
+                isFailed
+                  ? { opacity: 1, y: 0, filter: 'grayscale(0.85)' }
+                  : enabledStocks.has(stock.id)
+                    ? { opacity: 1, y: 0, filter: 'grayscale(0)' }
+                    : { opacity: 0.5, y: 0, filter: 'grayscale(0)' }
+              }
+              whileHover={{ y: -4, boxShadow: '0 8px 20px rgba(0,0,0,0.08)' }}
+              transition={{ duration: 0.35, ease: 'easeOut' }}
+            >
+              {isFailed && (
+                <span
+                  className="badge bg-danger position-absolute"
+                  style={{ top: 6, right: 6, zIndex: 1, fontSize: '10px' }}
+                  title="Failed to load fresh data"
+                >
+                  ⚠️ Failed
+                </span>
+              )}
+              <div className="card-body p-2" style={{ opacity: isFailed ? 0.6 : 1 }}>
+                <EnhancedChart
+                  symbol={stock.symbol}
+                  duration={selectedDuration}
+                  width={260}
+                  height={165}
+                  className="w-100"
+                  onError={handleChartError}
+                  onRefreshReady={registerChartRef}
+                  liveDataEnabled={liveDataEnabled}
+                  exchange={stock.exchange}
+                  enabled={enabledStocks.has(stock.id)}
+                />
+              </div>
+            </motion.div>
+          )
+        })}
       </div>
 
       {/* Footer Info */}
