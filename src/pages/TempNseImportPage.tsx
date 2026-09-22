@@ -231,10 +231,31 @@ const classifyStock = (name: string): { primary: string; secondary: string } => 
   return UNCLASSIFIED;
 };
 
-const buildTags = (primary: string, secondary: string): string[] => {
+type ClassificationSource = 'nse-official' | 'heuristic';
+
+// Prefers NSE's own official industry classification (from their index-constituent
+// archive) over the keyword guesser — it's authoritative where available, but only
+// covers index-member stocks (~750), not the full NSE universe. NSE's file has a
+// single "Industry" column, not a two-level sector/industry split like the
+// heuristic, so the same value is used for both tags when it's the source.
+const classifyStockMerged = (
+  symbol: string,
+  name: string,
+  officialIndustryMap: Record<string, string>
+): { primary: string; secondary: string; source: ClassificationSource } => {
+  const official = officialIndustryMap[symbol.trim().toUpperCase()];
+  if (official) {
+    return { primary: official, secondary: official, source: 'nse-official' };
+  }
+  const { primary, secondary } = classifyStock(name);
+  return { primary, secondary, source: 'heuristic' };
+};
+
+const buildTags = (primary: string, secondary: string, source: ClassificationSource): string[] => {
   const tags: string[] = ['nse-import'];
   tags.push(`sector:${primary}`);
   tags.push(`industry:${secondary}`);
+  tags.push(`sector-source:${source}`);
   if (primary === 'Unclassified') tags.push('unclassified');
   return tags;
 };
@@ -252,11 +273,17 @@ interface CategoryStat {
   count: number;
 }
 
+interface SourceStat {
+  source: ClassificationSource;
+  count: number;
+}
+
 const TempNseImportPage = () => {
   const [phase, setPhase] = useState<Phase>('idle');
   const [equities, setEquities] = useState<NseEquity[]>([]);
   const [categorized, setCategorized] = useState<BulkImportEntry[]>([]);
   const [stats, setStats] = useState<CategoryStat[]>([]);
+  const [sourceStats, setSourceStats] = useState<SourceStat[]>([]);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [importResult, setImportResult] = useState<BulkImportResult | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
@@ -319,17 +346,21 @@ const TempNseImportPage = () => {
     setPhase('fetching');
     setErrorMsg('');
     try {
-      const list = await kiteAPI.getNseEquities(forceRefresh);
+      const [list, officialIndustryMap] = await Promise.all([
+        kiteAPI.getNseEquities(forceRefresh),
+        kiteAPI.getNseIndustryClassification(forceRefresh)
+      ]);
       setEquities(list);
 
-      // Classify
+      // Classify — NSE's official industry data wins where available, keyword
+      // heuristic is the fallback for the long tail it doesn't cover.
       const entries: BulkImportEntry[] = list.map(eq => {
-        const { primary, secondary } = classifyStock(eq.name);
+        const { primary, secondary, source } = classifyStockMerged(eq.symbol, eq.name, officialIndustryMap);
         return {
           symbol: eq.symbol,
           name: eq.name,
           exchange: 'NSE',
-          tags: buildTags(primary, secondary),
+          tags: buildTags(primary, secondary, source),
           instrument_token: eq.instrument_token,
           isin: eq.isin
         };
@@ -338,11 +369,15 @@ const TempNseImportPage = () => {
 
       // Build stats
       const map = new Map<string, number>();
+      const sourceMap = new Map<ClassificationSource, number>();
       for (const e of entries) {
         const primary = e.tags.find(t => t.startsWith('sector:'))?.replace('sector:', '') ?? 'Unclassified';
         const secondary = e.tags.find(t => t.startsWith('industry:'))?.replace('industry:', '') ?? 'Unclassified';
         const key = `${primary}||${secondary}`;
         map.set(key, (map.get(key) ?? 0) + 1);
+
+        const source = (e.tags.find(t => t.startsWith('sector-source:'))?.replace('sector-source:', '') ?? 'heuristic') as ClassificationSource;
+        sourceMap.set(source, (sourceMap.get(source) ?? 0) + 1);
       }
       const statsArr: CategoryStat[] = Array.from(map.entries())
         .map(([k, count]) => {
@@ -351,6 +386,7 @@ const TempNseImportPage = () => {
         })
         .sort((a, b) => b.count - a.count);
       setStats(statsArr);
+      setSourceStats(Array.from(sourceMap.entries()).map(([source, count]) => ({ source, count })));
 
       setPhase('preview');
     } catch (err) {
@@ -403,6 +439,7 @@ const TempNseImportPage = () => {
     setEquities([]);
     setCategorized([]);
     setStats([]);
+    setSourceStats([]);
     setProgress({ done: 0, total: 0 });
     setImportResult(null);
     setErrorMsg('');
@@ -571,11 +608,26 @@ const TempNseImportPage = () => {
             </div>
 
             {/* Summary badges */}
-            <div className="d-flex gap-3 flex-wrap mb-3">
+            <div className="d-flex gap-3 flex-wrap mb-2">
               <span className="badge bg-success fs-6">{classified.toLocaleString()} classified</span>
               <span className={`badge fs-6 ${unclassified > 0 ? 'bg-warning text-dark' : 'bg-success'}`}>
                 {unclassified.toLocaleString()} unclassified
               </span>
+            </div>
+
+            {/* Classification source breakdown — Kite has no sector data at all;
+                this shows how much came from NSE's official file vs. the keyword guesser */}
+            <div className="d-flex align-items-center gap-2 flex-wrap mb-3">
+              <small className="text-muted">Classified via:</small>
+              {sourceStats.map(s => (
+                <span
+                  key={s.source}
+                  className={`badge ${s.source === 'nse-official' ? 'bg-primary' : 'bg-secondary'}`}
+                  title={s.source === 'nse-official' ? 'NSE official index-constituent classification' : 'Keyword-based guess from company name'}
+                >
+                  {s.source === 'nse-official' ? '✅ NSE official' : '🔍 Heuristic'}: {s.count.toLocaleString()}
+                </span>
+              ))}
             </div>
 
             {/* Category table */}
@@ -659,7 +711,7 @@ const TempNseImportPage = () => {
               <div className="col-auto">
                 <div className="border rounded p-3 text-center" style={{ minWidth: 100 }}>
                   <div className="fs-4 fw-bold text-secondary">{importResult.skipped.toLocaleString()}</div>
-                  <div className="small text-muted">Skipped (tags merged)</div>
+                  <div className="small text-muted">Already existed (tags reconciled)</div>
                 </div>
               </div>
               <div className="col-auto">

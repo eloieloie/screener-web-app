@@ -117,3 +117,17 @@ export interface NseEquityListResponse {
     expires_at: string | null;
   };
 }
+
+// NSE's official industry classification (from their index-constituent archive),
+// keyed by trading symbol. Only covers index-member stocks (~750), not the full
+// NSE universe — Kite Connect itself has no sector/industry data at all.
+export interface NseIndustryClassificationResponse {
+  success: boolean;
+  data: Record<string, string>;
+  metadata: {
+    total_count: number;
+    cached: boolean;
+    cached_at: string | null;
+    expires_at: string | null;
+  };
+}

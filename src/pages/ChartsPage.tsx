@@ -2,12 +2,13 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { motion } from 'motion/react'
 import type { Stock } from '../types/Stock'
 import EnhancedChart from '../components/EnhancedChart'
+import ChartModal from '../components/ChartModal'
 import { subscribeToStocks } from '../services/stockService'
 
 const BATCH_SIZE = 10
 const BATCH_DELAY_MS = 5000
 
-type Duration = '1month' | '6months' | '1year' | '3years' | '5years'
+type Duration = '1month' | '3months' | '6months' | '1year' | '3years' | '5years'
 
 interface ChartsPageProps {
   selectedTag?: string | null
@@ -23,6 +24,7 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
   const [refreshingCharts, setRefreshingCharts] = useState<Set<string>>(new Set())
   const [liveDataEnabled, setLiveDataEnabled] = useState(false)
   const chartRefs = useRef<Map<string, { hasError: boolean, refresh: () => void }>>(new Map())
+  const [modalStock, setModalStock] = useState<Stock | null>(null)
 
   // Batch activation: track which stock IDs are allowed to load
   const [enabledStocks, setEnabledStocks] = useState<Set<string>>(new Set())
@@ -31,6 +33,7 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
 
   const durationOptions = [
     { value: '1month', label: '1 Month', icon: '📅' },
+    { value: '3months', label: '3 Months', icon: '🗓️' },
     { value: '6months', label: '6 Months', icon: '📊' },
     { value: '1year', label: '1 Year', icon: '📈' },
     { value: '3years', label: '3 Years', icon: '📉' },
@@ -407,7 +410,12 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
                   ⚠️ Failed
                 </span>
               )}
-              <div className="card-body p-2" style={{ opacity: isFailed ? 0.6 : 1 }}>
+              <div
+                className="card-body p-2"
+                style={{ opacity: isFailed ? 0.6 : 1, cursor: 'pointer' }}
+                onClick={() => setModalStock(stock)}
+                title="Click to view enlarged chart"
+              >
                 <EnhancedChart
                   symbol={stock.symbol}
                   duration={selectedDuration}
@@ -441,6 +449,15 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
           </div>
         </div>
       </div>
+
+      {modalStock && (
+        <ChartModal
+          stock={modalStock}
+          initialDuration={selectedDuration}
+          liveDataEnabled={liveDataEnabled}
+          onClose={() => setModalStock(null)}
+        />
+      )}
     </div>
   )
 }

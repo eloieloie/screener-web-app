@@ -8,12 +8,17 @@ import StocksPage from './pages/StocksPage'
 import ChartsPage from './pages/ChartsPage'
 import BulkStocksPage from './pages/BulkStocksPage'
 import TempNseImportPage from './pages/TempNseImportPage'
+import TestTradePage from './pages/TestTradePage'
 import LoginPage from './pages/LoginPage'
+import RegisterPage from './pages/RegisterPage'
+import ChangePasswordModal from './components/ChangePasswordModal'
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<'dashboard' | 'stocks' | 'bulk' | 'charts' | 'analytics' | 'nse-import'>('dashboard')
+  const [currentPage, setCurrentPage] = useState<'dashboard' | 'stocks' | 'bulk' | 'charts' | 'analytics' | 'nse-import' | 'test-trade'>('dashboard')
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
   const [user, setUser] = useState<User | null | undefined>(undefined)
+  const [showChangePassword, setShowChangePassword] = useState(false)
+  const [authView, setAuthView] = useState<'login' | 'register'>('login')
 
   useEffect(() => {
     return onAuthStateChanged(auth, u => setUser(u))
@@ -35,7 +40,11 @@ function App() {
   }
 
   if (user === null) {
-    return <LoginPage />
+    return authView === 'register' ? (
+      <RegisterPage onSwitchToLogin={() => setAuthView('login')} />
+    ) : (
+      <LoginPage onSwitchToRegister={() => setAuthView('register')} />
+    )
   }
 
   const navigateToChartsWithTag = (tag: string) => {
@@ -116,6 +125,24 @@ function App() {
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
+              className={`btn ${currentPage === 'test-trade' ? 'btn-danger' : 'btn-outline-danger'} me-2`}
+              onClick={() => setCurrentPage('test-trade')}
+              title="Temporary page — places LIVE orders, remove after plan is verified"
+            >
+              🧪 Trade Test
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="btn btn-outline-secondary me-2"
+              onClick={() => setShowChangePassword(true)}
+              title="Change your password"
+            >
+              🔒 Change Password
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               className="btn btn-outline-danger"
               onClick={() => signOut(auth)}
               title={`Signed in as ${user.email}`}
@@ -125,6 +152,10 @@ function App() {
           </div>
         </div>
       </nav>
+
+      {showChangePassword && (
+        <ChangePasswordModal user={user} onClose={() => setShowChangePassword(false)} />
+      )}
 
       <div className="container-fluid mt-4">
         <AnimatePresence mode="wait">
@@ -193,6 +224,8 @@ function App() {
               <ChartsPage selectedTag={selectedTag} onClearTagFilter={clearTagFilter} />
             ) : currentPage === 'nse-import' ? (
               <TempNseImportPage />
+            ) : currentPage === 'test-trade' ? (
+              <TestTradePage />
             ) : (
               <Analytics />
             )}

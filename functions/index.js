@@ -436,6 +436,105 @@ app.get("/api/instruments/nse/equity", requireAuth, checkService, async (req, re
   }
 });
 
+// ── NSE Official Industry Classification — static archive CSV ───────────────
+// Kite Connect has no sector/industry/fundamentals data at all — this pulls
+// NSE's own official index-constituent list (covers ~750 index-member stocks,
+// not the full universe) as a much more accurate alternative to guessing
+// sector from the company name.
+
+let nseIndustryCache = null;
+let nseIndustryCacheTime = null;
+const NSE_INDUSTRY_CACHE_DURATION = 24 * 60 * 60 * 1000;
+const NSE_INDUSTRY_CSV_URL = "https://archives.nseindia.com/content/indices/ind_niftytotalmarket_list.csv";
+
+// Minimal quote-aware CSV line splitter — company names can contain commas
+// inside quoted fields (e.g. `"XYZ, Ltd"`).
+function splitCsvLine(line) {
+  const cells = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === "\"") {
+      inQuotes = !inQuotes;
+    } else if (ch === "," && !inQuotes) {
+      cells.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  cells.push(cur);
+  return cells.map((c) => c.trim());
+}
+
+// Parses NSE's official index-constituent CSV (columns: Company Name, Industry,
+// Symbol, Series, ISIN Code) into a flat { symbol: industry } map. Parses by
+// header name, not fixed position, so a future NSE column reorder doesn't
+// silently corrupt data.
+function parseNseIndustryCsv(text) {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  if (lines.length === 0) throw new Error("Empty CSV");
+
+  const header = splitCsvLine(lines[0]);
+  const industryIdx = header.indexOf("Industry");
+  const symbolIdx = header.indexOf("Symbol");
+  if (industryIdx === -1 || symbolIdx === -1) {
+    throw new Error(`Expected "Industry" and "Symbol" columns, got: ${header.join(", ")}`);
+  }
+
+  const map = {};
+  for (const line of lines.slice(1)) {
+    const cols = splitCsvLine(line);
+    const symbol = cols[symbolIdx]?.trim().toUpperCase();
+    const industry = cols[industryIdx]?.trim();
+    if (symbol && industry) map[symbol] = industry;
+  }
+  return map;
+}
+
+const ensureNseIndustryCache = async (forceRefresh = false) => {
+  if (!forceRefresh && nseIndustryCache && nseIndustryCacheTime && Date.now() - nseIndustryCacheTime < NSE_INDUSTRY_CACHE_DURATION) {
+    return nseIndustryCache;
+  }
+  console.log("[NSE_INDUSTRY] Fetching official industry classification from NSE archives...");
+  const response = await fetch(NSE_INDUSTRY_CSV_URL, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      "Accept": "text/csv,*/*",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`NSE archive request failed: ${response.status} ${response.statusText}`);
+  }
+  const text = await response.text();
+  nseIndustryCache = parseNseIndustryCsv(text);
+  nseIndustryCacheTime = Date.now();
+  console.log(`[NSE_INDUSTRY] Cached official industry classification for ${Object.keys(nseIndustryCache).length} symbols`);
+  return nseIndustryCache;
+};
+
+app.get("/api/instruments/nse/industry-classification", requireAuth, async (req, res) => {
+  try {
+    const forceRefresh = req.query.refresh === "true";
+    if (forceRefresh) { nseIndustryCache = null; nseIndustryCacheTime = null; }
+    const data = await ensureNseIndustryCache(forceRefresh);
+    res.json({
+      success: true,
+      data,
+      metadata: {
+        total_count: Object.keys(data).length,
+        cached: true,
+        cached_at: nseIndustryCacheTime ? new Date(nseIndustryCacheTime).toISOString() : null,
+        expires_at: nseIndustryCacheTime ? new Date(nseIndustryCacheTime + NSE_INDUSTRY_CACHE_DURATION).toISOString() : null,
+      },
+    });
+  } catch (err) {
+    console.error("[NSE_INDUSTRY] Error:", err.message);
+    res.status(500).json({ success: false, message: "Failed to fetch NSE industry classification", error: err.message });
+  }
+});
+
 app.post("/api/instruments/nse/import/validate", requireAuth, (req, res) => {
   const { stocks } = req.body;
   if (!Array.isArray(stocks) || stocks.length === 0) {
@@ -450,6 +549,82 @@ app.post("/api/instruments/nse/import/validate", requireAuth, (req, res) => {
     }
   }
   res.json({ success: true, valid_count: valid.length, invalid_count: invalid.length, valid, invalid });
+});
+
+// ── Order routes — LIVE trading ──────────────────────────────────────────────
+// These place/cancel real orders on the connected Zerodha account. Added to
+// test whether the current Kite Connect plan permits order placement.
+
+app.post("/api/orders/place", requireAuth, checkService, async (req, res) => {
+  try {
+    const {
+      variety = "regular",
+      exchange,
+      tradingsymbol,
+      transaction_type,
+      order_type,
+      quantity,
+      product,
+      price,
+      trigger_price,
+      validity = "DAY",
+    } = req.body;
+
+    if (!exchange || !tradingsymbol || !transaction_type || !order_type || !quantity || !product) {
+      return res.status(400).json({
+        error: "Missing required order fields: exchange, tradingsymbol, transaction_type, order_type, quantity, product",
+      });
+    }
+
+    const orderParams = {
+      exchange,
+      tradingsymbol: tradingsymbol.toUpperCase(),
+      transaction_type,
+      order_type,
+      quantity: Number(quantity),
+      product,
+      validity,
+    };
+    if ((order_type === "LIMIT" || order_type === "SL") && price) {
+      orderParams.price = Number(price);
+    }
+    if ((order_type === "SL" || order_type === "SL-M") && trigger_price) {
+      orderParams.trigger_price = Number(trigger_price);
+    }
+
+    console.log(`Placing ${variety} order:`, orderParams);
+    const result = await getKiteService().placeOrder(variety, orderParams);
+
+    res.json({ success: true, data: result, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error("Error placing order:", err.message);
+    res.status(500).json({ error: "Failed to place order", details: err.message });
+  }
+});
+
+app.post("/api/orders/cancel", requireAuth, checkService, async (req, res) => {
+  try {
+    const { variety = "regular", order_id } = req.body;
+    if (!order_id) return res.status(400).json({ error: "order_id is required" });
+
+    console.log(`Cancelling ${variety} order ${order_id}`);
+    const result = await getKiteService().cancelOrder(variety, order_id);
+
+    res.json({ success: true, data: result, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error("Error cancelling order:", err.message);
+    res.status(500).json({ error: "Failed to cancel order", details: err.message });
+  }
+});
+
+app.get("/api/orders", requireAuth, checkService, async (req, res) => {
+  try {
+    const orders = await getKiteService().getOrders();
+    res.json({ success: true, data: orders, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error("Error fetching orders:", err.message);
+    res.status(500).json({ error: "Failed to fetch orders", details: err.message });
+  }
 });
 
 // ── Error handlers ────────────────────────────────────────────────────────────

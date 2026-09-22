@@ -1,4 +1,5 @@
-import type { Stock, NseEquity, NseEquityListResponse } from '../types/Stock';
+import type { Stock, NseEquity, NseEquityListResponse, NseIndustryClassificationResponse } from '../types/Stock';
+import type { OrderParams, OrderPlaceResponse, KiteOrder, OrdersResponse } from '../types/Order';
 
 interface HistoricalDataPoint {
   date: string;
@@ -348,6 +349,24 @@ class KiteConnectAPI {
   }
 
   /**
+   * Fetch NSE's official industry classification (symbol -> Industry), sourced
+   * from NSE's own index-constituent archive rather than Kite — Kite Connect
+   * itself has no sector/industry data. Only covers index-member stocks.
+   * Requires active Zerodha auth (same gating as getNseEquities).
+   */
+  async getNseIndustryClassification(forceRefresh = false): Promise<Record<string, string>> {
+    if (!this.isAuthenticated) {
+      throw new Error('KiteConnect API not authenticated. Please login to access NSE industry classification.');
+    }
+    const url = forceRefresh
+      ? '/api/instruments/nse/industry-classification?refresh=true'
+      : '/api/instruments/nse/industry-classification';
+    const response = await this.makeRequest<NseIndustryClassificationResponse>(url);
+    if (response.success) return response.data;
+    throw new Error('Failed to fetch NSE industry classification');
+  }
+
+  /**
    * Get market status
    */
   async getMarketStatus(): Promise<string> {
@@ -370,6 +389,48 @@ class KiteConnectAPI {
       console.error('KiteConnect: Error getting market status:', error);
       throw error;
     }
+  }
+
+  /**
+   * Place a live order on the connected Zerodha account.
+   * Returns the Kite order_id on success.
+   */
+  async placeOrder(params: OrderParams): Promise<string> {
+    if (!this.isAuthenticated) {
+      throw new Error('KiteConnect API not authenticated. Please login to place orders.');
+    }
+    const { variety, ...orderBody } = params;
+    const response = await this.makeRequest<OrderPlaceResponse>(`/api/orders/place`, {
+      method: 'POST',
+      body: JSON.stringify({ variety, ...orderBody }),
+    });
+    if (response.success) return response.data.order_id;
+    throw new Error('Failed to place order');
+  }
+
+  /**
+   * Cancel a previously placed order.
+   */
+  async cancelOrder(variety: string, orderId: string): Promise<void> {
+    if (!this.isAuthenticated) {
+      throw new Error('KiteConnect API not authenticated. Please login to cancel orders.');
+    }
+    await this.makeRequest('/api/orders/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ variety, order_id: orderId }),
+    });
+  }
+
+  /**
+   * Get today's order book (all orders and their status).
+   */
+  async getOrders(): Promise<KiteOrder[]> {
+    if (!this.isAuthenticated) {
+      throw new Error('KiteConnect API not authenticated. Please login to view orders.');
+    }
+    const response = await this.makeRequest<OrdersResponse>('/api/orders');
+    if (response.success) return response.data;
+    throw new Error('Failed to fetch orders');
   }
 
   /**

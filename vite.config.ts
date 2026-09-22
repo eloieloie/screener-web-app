@@ -26,26 +26,34 @@ export default defineConfig({
       clientPort: 8443 // HMR WebSocket uses port 8443 externally (router forwards 8443 → 5275)
     },
     proxy: {
-      // Proxy API requests to our backend server
-      '/api': {
+      // Order placement/cancel must go through the local server — Kite requires
+      // a whitelistable static IP for these endpoints, and Cloud Functions'
+      // egress IP is unstable. Must come before '/api' so it matches first.
+      '/api/orders': {
         target: 'http://localhost:3001',
         changeOrigin: true,
         secure: false,
         timeout: 30000,
         headers: {
-          'Accept': 'application/json',
-          'X-Forwarded-Proto': 'https'
+          'Accept': 'application/json'
         }
       },
-      // Proxy auth requests to our backend server
-      '/auth': {
-        target: 'http://localhost:3001',
+      // Proxy remaining API requests to the live production backend (Firebase Function)
+      '/api': {
+        target: 'https://api-gx4qle7k5q-uc.a.run.app',
         changeOrigin: true,
-        secure: false,
         timeout: 30000,
         headers: {
-          'Accept': 'application/json',
-          'X-Forwarded-Proto': 'https'
+          'Accept': 'application/json'
+        }
+      },
+      // Proxy auth requests to the live production backend (Firebase Function)
+      '/auth': {
+        target: 'https://api-gx4qle7k5q-uc.a.run.app',
+        changeOrigin: true,
+        timeout: 30000,
+        headers: {
+          'Accept': 'application/json'
         }
       }
     }

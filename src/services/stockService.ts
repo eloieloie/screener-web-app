@@ -250,6 +250,7 @@ export const getHistoricalData = async (
   const toDate = new Date();
   const durationMap: Record<string, number> = {
     '1month': 30,
+    '3months': 90,
     '6months': 180,
     '1year': 365,
     '3years': 1095,
@@ -380,6 +381,35 @@ const updateStockTags = async (stockId: string, newTags: string[]): Promise<void
   } catch (error) {
     console.error('Error updating stock tags:', error);
     throw new Error('Failed to update stock tags');
+  }
+};
+
+// Matches the sector/industry/provenance tags produced by the NSE import classifier
+const CLASSIFICATION_TAG_RE = /^(sector|industry|sector-source):/;
+
+// Unlike updateStockTags (arrayUnion — add-only), this REPLACES a stock's
+// classification tags: it strips any stale sector:/industry:/sector-source:
+// tags (plus the bare 'unclassified' marker) and merges in the new
+// authoritative ones, persisting via a plain updateDoc so stale tags actually
+// get removed. All unrelated tags (manual tags, csv-import, fallback-bse,
+// etc.) are preserved untouched. Used during NSE reclassification, where
+// re-running the import must be able to fix a previously wrong "Unclassified"
+// guess rather than just piling a correct tag on top of the wrong one.
+const reconcileStockTags = async (
+  stockId: string,
+  existingTags: string[],
+  newTags: string[]
+): Promise<void> => {
+  try {
+    const preserved = existingTags.filter(t => t !== 'unclassified' && !CLASSIFICATION_TAG_RE.test(t));
+    const merged = Array.from(new Set([...preserved, ...newTags]));
+    await withWriteThrottle(`reconcileTags:${stockId}`, () => updateDoc(doc(db, STOCKS_COLLECTION, stockId), {
+      tags: merged,
+      updatedAt: Timestamp.now()
+    }));
+  } catch (error) {
+    console.error('Error reconciling stock tags:', error);
+    throw new Error('Failed to reconcile stock tags');
   }
 };
 
@@ -869,7 +899,7 @@ export const refreshAllHistoricalDataForStock = async (
   exchange: string
 ): Promise<void> => {
   try {
-    const durations = ['1month', '6months', '1year', '3years', '5years'];
+    const durations = ['1month', '3months', '6months', '1year', '3years', '5years'];
     const refreshPromises = durations.map(duration => 
       getHistoricalData(symbol, exchange, duration, true) // Force refresh
     );
@@ -922,11 +952,10 @@ export const bulkAddStockMetadataOnly = async (
           const existing = await findExistingStock(entry.symbol, entry.exchange);
 
           if (existing) {
-            // Merge any new tags only
-            const newTags = (entry.tags || []).filter(t => !existing.tags.includes(t));
-            if (newTags.length > 0) {
-              await updateStockTags(existing.id, newTags);
-            }
+            // Reconcile (not merge) classification tags — replaces stale
+            // sector:/industry:/unclassified tags with the newly computed
+            // ones instead of just piling correct tags on top of wrong ones.
+            await reconcileStockTags(existing.id, existing.tags, entry.tags || []);
             result.skipped++;
           } else {
             const stockDocument: Record<string, unknown> = {

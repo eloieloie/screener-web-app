@@ -16,7 +16,7 @@ interface EnhancedChartProps {
   width?: number
   height?: number
   className?: string
-  duration: '1month' | '6months' | '1year' | '3years' | '5years'
+  duration: '1month' | '3months' | '6months' | '1year' | '3years' | '5years'
   onError?: (symbol: string, hasError: boolean, errorMessage?: string) => void
   onRefreshReady?: (symbol: string, refreshFn: () => void) => void
   liveDataEnabled?: boolean
@@ -71,6 +71,7 @@ const getChartColors = (changePercent: number) => {
 
 const DURATION_CONFIG = {
   '1month': { days: 30, label: '1M', interval: 'day' },
+  '3months': { days: 90, label: '3M', interval: 'day' },
   '6months': { days: 180, label: '6M', interval: 'day' },
   '1year': { days: 365, label: '1Y', interval: 'day' },
   '3years': { days: 1095, label: '3Y', interval: 'day' },

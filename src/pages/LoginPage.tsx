@@ -1,18 +1,24 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail } from 'firebase/auth'
 import { collection, getDocs, doc, setDoc, getDoc } from 'firebase/firestore'
 import { auth, db } from '../config/firebase'
 
 const googleProvider = new GoogleAuthProvider()
 
-export default function LoginPage() {
+interface LoginPageProps {
+  onSwitchToRegister?: () => void
+}
+
+export default function LoginPage({ onSwitchToRegister }: LoginPageProps) {
   const [mode, setMode] = useState<'loading' | 'login' | 'setup'>('loading')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [resetMessage, setResetMessage] = useState('')
+  const [showReset, setShowReset] = useState(false)
 
   useEffect(() => {
     getDocs(collection(db, 'users'))
@@ -54,6 +60,25 @@ export default function LoginPage() {
       })
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to create admin account.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setResetMessage('')
+    if (!email) {
+      setError('Enter your email address above first.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await sendPasswordResetEmail(auth, email)
+      setResetMessage(`Password reset email sent to ${email}. Check your inbox.`)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to send reset email.')
     } finally {
       setSubmitting(false)
     }
@@ -179,6 +204,17 @@ export default function LoginPage() {
                   {error}
                 </motion.div>
               )}
+              {resetMessage && (
+                <motion.div
+                  className="alert alert-success py-2 small mb-3"
+                  initial={{ opacity: 0, y: -6, height: 0 }}
+                  animate={{ opacity: 1, y: 0, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {resetMessage}
+                </motion.div>
+              )}
             </AnimatePresence>
             <motion.button
               whileHover={{ scale: 1.02 }}
@@ -194,6 +230,34 @@ export default function LoginPage() {
                 </>
               ) : mode === 'setup' ? 'Create Admin Account' : 'Sign In'}
             </motion.button>
+            {mode === 'login' && (
+              <div className="text-center mt-2">
+                <button
+                  type="button"
+                  className="btn btn-link btn-sm text-muted p-0"
+                  onClick={() => { setShowReset(!showReset); setError(''); setResetMessage('') }}
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
+            {showReset && mode === 'login' && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                transition={{ duration: 0.2 }}
+                className="mt-2"
+              >
+                <button
+                  type="button"
+                  className="btn btn-outline-primary w-100 py-2"
+                  disabled={submitting}
+                  onClick={handlePasswordReset}
+                >
+                  Send password reset email to {email || 'entered address'}
+                </button>
+              </motion.div>
+            )}
           </form>
 
           <div className="d-flex align-items-center my-4">
@@ -217,6 +281,14 @@ export default function LoginPage() {
             </svg>
             Sign in with Google
           </motion.button>
+
+          {mode === 'login' && onSwitchToRegister && (
+            <div className="text-center mt-4">
+              <button type="button" className="btn btn-link btn-sm" onClick={onSwitchToRegister}>
+                Don't have an account? Register
+              </button>
+            </div>
+          )}
         </div>
       </motion.div>
     </div>

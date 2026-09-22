@@ -467,11 +467,17 @@ const BulkStocksPage = () => {
             
           } catch (alternativeError) {
             console.error(`Error adding ${stock.symbol} on ${alternativeExchange}:`, alternativeError)
-            
-            // Both exchanges failed
-            const errorMessage = `Stock ${stock.symbol} not found on both NSE and BSE. Verify the symbol is correct and currently trading.`
-            updateStock(stock.id, { 
-              status: 'error', 
+
+            // Both exchanges failed - only claim "not found" if both errors actually say so.
+            // Otherwise surface the real error (e.g. backend unreachable, not authenticated)
+            // instead of masking it with a misleading "not found" message.
+            const alternativeErrorMessage = alternativeError instanceof Error ? alternativeError.message : 'Failed to add stock'
+            const isNotFoundError = (msg: string) => /not found/i.test(msg)
+            const errorMessage = isNotFoundError(originalError) && isNotFoundError(alternativeErrorMessage)
+              ? `Stock ${stock.symbol} not found on both NSE and BSE. Verify the symbol is correct and currently trading.`
+              : `Stock ${stock.symbol}: ${alternativeErrorMessage}`
+            updateStock(stock.id, {
+              status: 'error',
               error: errorMessage
             })
             
