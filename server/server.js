@@ -6,6 +6,8 @@ import session from 'express-session';
 import MemoryStore from 'memorystore';
 import { KiteConnect } from 'kiteconnect';
 import dotenv from 'dotenv';
+import cron from 'node-cron';
+import { getAutoLoginRequestToken } from './kiteAutoLogin.js';
 
 // Load environment variables
 dotenv.config();
@@ -27,6 +29,13 @@ const MemoryStoreSession = MemoryStore(session);
 const KITE_API_KEY = process.env.KITE_API_KEY;
 const KITE_API_SECRET = process.env.KITE_API_SECRET;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'local-dev-secret-change-in-production';
+
+// Credentials for unattended daily login (see kiteAutoLogin.js). Optional —
+// if unset, auto-login is simply skipped and the manual login button still works.
+const KITE_USER_ID = process.env.KITE_USER_ID;
+const KITE_PASSWORD = process.env.KITE_PASSWORD;
+const KITE_TOTP_SECRET = process.env.KITE_TOTP_SECRET;
+const AUTO_LOGIN_ENABLED = !!(KITE_USER_ID && KITE_PASSWORD && KITE_TOTP_SECRET);
 
 // Initialize KiteConnect
 let kiteService = null;
@@ -79,6 +88,49 @@ app.use(session({
 // In-memory token store: access_token → user auth data
 // This is the fallback when session cookies don't propagate through the Vite proxy
 const tokenStore = new Map(); // access_token -> { user_id, user_name, access_token, authenticated, timestamp }
+
+// Most recent session produced by the unattended auto-login (see below). Used as a
+// last-resort fallback in /auth/status so a browser tab shows "connected" each
+// morning without anyone clicking the manual login button.
+let latestAutoAuth = null;
+
+/**
+ * Logs into Kite headlessly using KITE_USER_ID/KITE_PASSWORD/KITE_TOTP_SECRET,
+ * then exchanges the resulting request_token for a real access_token via the
+ * same generateSession() call the manual OAuth flow uses. Kite invalidates the
+ * previous day's access_token every morning, so this needs to run once daily
+ * (see the cron schedule near the bottom of this file) before you can trade.
+ */
+async function performAutoLogin() {
+  if (!kiteService) throw new Error('KiteConnect service not configured (missing KITE_API_KEY/KITE_API_SECRET).');
+  if (!AUTO_LOGIN_ENABLED) throw new Error('Auto-login not configured — set KITE_USER_ID, KITE_PASSWORD and KITE_TOTP_SECRET in .env.');
+
+  console.log('🤖 Running unattended Kite login...');
+  const requestToken = await getAutoLoginRequestToken({
+    apiKey: KITE_API_KEY,
+    userId: KITE_USER_ID,
+    password: KITE_PASSWORD,
+    totpSecret: KITE_TOTP_SECRET,
+  });
+
+  const sessionData = await kiteService.generateSession(requestToken, KITE_API_SECRET);
+  const authData = {
+    access_token: sessionData.access_token,
+    public_token: sessionData.public_token,
+    user_id: sessionData.user_id,
+    user_name: sessionData.user_name,
+    authenticated: true,
+    timestamp: new Date().toISOString(),
+    source: 'auto-login',
+  };
+
+  tokenStore.set(sessionData.access_token, authData);
+  latestAutoAuth = authData;
+  kiteService.setAccessToken(sessionData.access_token);
+
+  console.log(`✅ Auto-login successful for ${sessionData.user_name} — access_token stored (expires when Kite invalidates it, typically ~7:30am IST tomorrow).`);
+  return authData;
+}
 
 // Utility function to get instrument token
 const instrumentsCache = new Map();
@@ -300,6 +352,23 @@ app.post('/auth/session', checkService, async (req, res) => {
   }
 });
 
+// Manually trigger the unattended login (useful for testing, or re-running after
+// a mid-day failure without waiting for the next cron tick).
+app.post('/auth/auto-login', checkService, async (req, res) => {
+  try {
+    const authData = await performAutoLogin();
+    res.json({
+      success: true,
+      message: 'Auto-login successful',
+      access_token: authData.access_token,
+      user: { user_id: authData.user_id, user_name: authData.user_name },
+    });
+  } catch (error) {
+    console.error('❌ Auto-login failed:', error);
+    res.status(401).json({ error: 'Auto-login failed', details: error.message });
+  }
+});
+
 app.get('/auth/status', async (req, res) => {
   // Check Bearer token first
   let userData = null;
@@ -327,12 +396,19 @@ app.get('/auth/status', async (req, res) => {
       }
     }
   }
-  // Fall back to session
+  // Fall back to session, then to the most recent unattended auto-login —
+  // this is what lets a freshly opened browser tab show "connected" each
+  // morning without anyone clicking the manual login button.
   if (!userData) userData = req.session.kiteAuth || null;
+  if (!userData) userData = latestAutoAuth;
   const isAuthenticated = userData?.authenticated || false;
-  
+
   res.json({
     authenticated: isAuthenticated,
+    // Only returned when we're handing the frontend a token it didn't already
+    // have (session/auto-login fallback) — a Bearer-authenticated request
+    // already knows its own token, no need to echo it back.
+    access_token: isAuthenticated && !authHeader ? userData.access_token : undefined,
     user: isAuthenticated ? {
       user_id: userData.user_id,
       user_name: userData.user_name,
@@ -933,21 +1009,41 @@ app.use('*', (req, res) => {
   });
 });
 
+// Kite invalidates the previous day's access_token every morning (typically
+// by ~7:30am IST). Re-login shortly after that, well before the 9:15am market
+// open, so the token is always fresh once trading starts. Requires the server
+// process itself to be running at that time (e.g. via launchd/cron keeping it
+// alive) — this schedules work *within* the process, it doesn't wake your Mac.
+if (AUTO_LOGIN_ENABLED) {
+  cron.schedule('0 8 * * 1-5', () => {
+    performAutoLogin().catch((err) => console.error('❌ Scheduled auto-login failed:', err.message));
+  }, { timezone: 'Asia/Kolkata' });
+  console.log('⏰ Scheduled unattended Kite login for 08:00 IST on weekdays');
+}
+
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
   console.log('🚀 Screener Backend Server started');
   console.log(`📍 Server URL: http://localhost:${PORT}`);
   console.log(`🌐 Network URL: http://0.0.0.0:${PORT}`);
   console.log(`🔐 KiteConnect: ${kiteService ? 'Configured' : 'Not configured'}`);
+  console.log(`🤖 Auto-login: ${AUTO_LOGIN_ENABLED ? 'Configured (runs 08:00 IST weekdays)' : 'Not configured (set KITE_USER_ID/KITE_PASSWORD/KITE_TOTP_SECRET)'}`);
   console.log('');
   console.log('Available endpoints:');
   console.log('  GET  /              - Server info');
   console.log('  GET  /health        - Health check');
   console.log('  GET  /auth/login    - Get login URL');
   console.log('  POST /auth/session  - Create session');
+  console.log('  POST /auth/auto-login - Trigger unattended login now');
   console.log('  GET  /auth/status   - Check auth status');
   console.log('  POST /auth/logout   - Logout');
   console.log('');
+
+  // Also run once at startup so restarting the server (or starting it late in
+  // the morning) doesn't leave you waiting for the next 08:00 cron tick.
+  if (AUTO_LOGIN_ENABLED) {
+    performAutoLogin().catch((err) => console.error('❌ Startup auto-login failed:', err.message));
+  }
 });
 
 export default app;

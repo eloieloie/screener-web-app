@@ -185,11 +185,20 @@ class KiteConnectAPI {
     try {
       const response = await this.makeRequest<{
         authenticated: boolean;
+        access_token?: string;
         user: UserInfo | null;
       }>('/auth/status');
-      
+
       this.isAuthenticated = response.authenticated;
       this.userInfo = response.user;
+      // Backend hands back a token when it authenticated us via session/auto-login
+      // fallback rather than a Bearer header we already sent — e.g. after the
+      // scheduled unattended login runs and this is the first check-in of the day.
+      if (response.access_token) {
+        this.sessionToken = response.access_token;
+        sessionStorage.setItem('kite_access_token', response.access_token);
+        console.log('🔑 Picked up access token from backend auto-login');
+      }
     } catch (error) {
       console.error('Failed to check auth status:', error);
       this.isAuthenticated = false;
