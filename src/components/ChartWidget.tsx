@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import KiteConnectAPI from '../services/kiteConnectAPI'
+import { getHistoricalData } from '../services/stockService'
 
 interface ChartWidgetProps {
   symbol: string
@@ -15,7 +15,6 @@ interface StockData {
   volume: number
 }
 
-const kiteAPI = KiteConnectAPI.getInstance()
 
 function ChartWidget({ symbol, className = '' }: ChartWidgetProps) {
   const [loading, setLoading] = useState(true)
@@ -33,10 +32,8 @@ function ChartWidget({ symbol, className = '' }: ChartWidgetProps) {
       setError(null)
 
       // Fetch historical data from KiteConnect API
-      const toDate = new Date()
-      const fromDate = new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000) // 30 days ago
-      
-      const historicalData = await kiteAPI.getHistoricalData(symbol, fromDate, toDate, 'day')
+      // Served from Firestore; the API is only hit once per day per stock
+      const historicalData = await getHistoricalData(symbol, 'NSE', '1month')
       
       if (historicalData && historicalData.length > 0) {
         // Convert KiteConnect data to our format

@@ -338,7 +338,7 @@ const TempNseImportPage = () => {
   };
 
   const handleFetch = useCallback(async () => {
-    if (!kiteAPI.isReady()) {
+    if (!kiteAPI.canFetchData()) {
       setErrorMsg('You must be logged in to Zerodha before running the import.');
       setPhase('error');
       return;
@@ -544,7 +544,7 @@ const TempNseImportPage = () => {
       </div>
 
       {/* Auth warning */}
-      {!kiteAPI.isReady() && (
+      {!kiteAPI.canFetchData() && (
         <div className="alert alert-warning d-flex align-items-center gap-2">
           <span>⚠️</span>
           <span>You are not logged in to Zerodha. Please log in from the Dashboard before running the import.</span>
@@ -586,7 +586,7 @@ const TempNseImportPage = () => {
             <button
               className="btn btn-primary"
               onClick={handleFetch}
-              disabled={phase === 'fetching' || !kiteAPI.isReady()}
+              disabled={phase === 'fetching' || !kiteAPI.canFetchData()}
             >
               {phase === 'fetching' ? (
                 <><span className="spinner-border spinner-border-sm me-2" />Fetching…</>

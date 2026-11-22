@@ -1,96 +1,53 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { Stock } from '../types/Stock'
 import { formatVolume } from '../utils/formatters'
 import SimpleChart from './SimpleChart'
-import KiteConnectAPI from '../services/kiteConnectAPI'
+import { refreshStockPrice } from '../services/stockService'
 
 interface StockCardProps {
   stock: Stock
   onRemove: () => void
 }
 
+const isSameLocalDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+
 const StockCard = ({ stock, onRemove }: StockCardProps) => {
   const [showChart, setShowChart] = useState(true) // Show charts by default for Firebase stocks
   const [liveStock, setLiveStock] = useState<Stock>(stock)
   const [isLoading, setIsLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(stock.cachedPriceData?.lastUpdated ? new Date(stock.cachedPriceData.lastUpdated) : null)
   const [error, setError] = useState<string | null>(null)
   
-  // Initialize KiteConnect API (memoized to prevent recreation)
-  const kiteAPI = useMemo(() => KiteConnectAPI.getInstance(), [])
-
-  // Fetch live stock data
+  // Quotes are refreshed from the API at most once per day. The result is saved
+  // to Firestore (refreshStockPrice), so every later load reads the saved price.
   const fetchLiveData = useCallback(async (showLoading = false) => {
     try {
-      if (showLoading) {
-        setIsRefreshing(true)
-      }
+      if (showLoading) setIsRefreshing(true)
       setError(null)
-      
-      // Check if API is authenticated before making request
-      if (!kiteAPI.isReady()) {
-        setError('Authentication required - Please login to Zerodha Kite for live data')
-        return
-      }
-      
-      const freshData = await kiteAPI.getStockQuote(stock.symbol)
-      
-      if (freshData) {
-        setLiveStock(prevStock => ({
-          ...freshData,
-          id: prevStock.id // Keep the original Firebase ID
-        }))
-        setLastUpdated(new Date())
-      }
+
+      const fresh = await refreshStockPrice(stock.id, stock.symbol, stock.exchange || 'NSE')
+      setLiveStock(prev => ({ ...fresh, id: prev.id }))
+      setLastUpdated(new Date())
     } catch (err) {
-      console.error('Error fetching live stock data:', err)
-      const kiteAPI = KiteConnectAPI.getInstance()
-      
-      if (err instanceof Error && err.message.includes('not authenticated')) {
-        if (kiteAPI.isReady()) {
-          // User is authenticated but session doesn't work - show helpful message
-          setError('Session issue - Live data temporarily unavailable (using sample data)')
-        } else {
-          setError('Authentication required - Please login to Zerodha Kite for live data')
-        }
-      } else {
-        setError('Failed to fetch live data')
-      }
+      console.error('Error refreshing stock data:', err)
+      setError('Failed to refresh price data')
     } finally {
-      if (showLoading) {
-        setIsRefreshing(false)
-      }
+      if (showLoading) setIsRefreshing(false)
       setIsLoading(false)
     }
-  }, [stock.symbol, kiteAPI])
+  }, [stock.id, stock.symbol, stock.exchange])
 
-  // Auto-refresh every 30 seconds during market hours
   useEffect(() => {
-    // Initial load
+    const saved = stock.cachedPriceData?.lastUpdated
+    const fetchedToday = !!saved && stock.price > 0 && isSameLocalDay(new Date(saved), new Date())
+    if (fetchedToday) return // already refreshed today — use the Firestore copy
     setIsLoading(true)
     fetchLiveData()
-
-    // Set up interval for auto-refresh
-    const interval = setInterval(() => {
-      const now = new Date()
-      const currentHour = now.getHours()
-      const currentMinute = now.getMinutes()
-      const isWeekday = now.getDay() >= 1 && now.getDay() <= 5
-      
-      // Market hours: 9:15 AM to 3:30 PM on weekdays
-      const isMarketHours = isWeekday && 
-        ((currentHour > 9) || (currentHour === 9 && currentMinute >= 15)) &&
-        ((currentHour < 15) || (currentHour === 15 && currentMinute <= 30))
-      
-      // Only refresh if authenticated and during market hours
-      if (isMarketHours && kiteAPI.isReady()) {
-        fetchLiveData()
-      }
-    }, 30000) // 30 seconds
-
-    return () => clearInterval(interval)
-  }, [fetchLiveData, kiteAPI])
+    // Intentionally runs once per mount: no polling, no refetch on prop updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleManualRefresh = () => {
     fetchLiveData(true)
@@ -107,7 +64,8 @@ const StockCard = ({ stock, onRemove }: StockCardProps) => {
     return `${numPercent >= 0 ? '+' : ''}${numPercent.toFixed(2)}%`;
   }
   
-  const formatLastUpdated = (date: Date) => {
+  const formatLastUpdated = (date: Date | null) => {
+    if (!date) return 'never'
     const now = new Date()
     const diffMs = now.getTime() - date.getTime()
     const diffSeconds = Math.floor(diffMs / 1000)
@@ -143,11 +101,8 @@ const StockCard = ({ stock, onRemove }: StockCardProps) => {
             )}
           </h5>
           <p className="card-subtitle text-muted small mb-0">{liveStock.name}</p>
-          <small className={kiteAPI.isReady() ? "text-success" : "text-warning"}>
-            {kiteAPI.isReady() ? 
-              `📈 Live Data • Updated ${formatLastUpdated(lastUpdated)}` : 
-              `⚠️ Cached Data • Login for live prices`
-            }
+          <small className="text-muted">
+            Daily data • Updated {formatLastUpdated(lastUpdated)}
           </small>
           {error && (
             <small className="text-danger d-block">
@@ -167,7 +122,7 @@ const StockCard = ({ stock, onRemove }: StockCardProps) => {
             className={`btn btn-sm ${isRefreshing ? 'btn-secondary' : 'btn-outline-primary'}`}
             onClick={handleManualRefresh}
             disabled={isRefreshing}
-            title="Refresh live data"
+            title="Refresh price now"
           >
             {isRefreshing ? (
               <div className="spinner-border spinner-border-sm" role="status">
@@ -184,19 +139,15 @@ const StockCard = ({ stock, onRemove }: StockCardProps) => {
         {/* Price Section */}
         <div className="mb-3">
           <div className="d-flex flex-column">
-            <span className={`h5 mb-0 ${!kiteAPI.isReady() && liveStock.price === 0 ? 'text-muted' : ''}`}>
-              {liveStock.price === 0 && !kiteAPI.isReady() ? 'Login for live price' : formatPrice(liveStock.price)}
-            </span>
+            <span className="h5 mb-0">{formatPrice(liveStock.price)}</span>
             <small className="text-muted">
-              {kiteAPI.isReady() ? 'Live Price' : 'Requires Authentication'} {liveStock.previousClose && kiteAPI.isReady() && (
-                `• Prev: ₹${liveStock.previousClose.toFixed(2)}`
-              )}
+              Last close {liveStock.previousClose ? `• Prev: ₹${liveStock.previousClose.toFixed(2)}` : ''}
             </small>
           </div>
         </div>
 
         {/* Change Indicators */}
-        {kiteAPI.isReady() && liveStock.price > 0 ? (
+        {liveStock.price > 0 ? (
           <div className="d-flex gap-2 mb-3">
             {liveStock.change !== 0 && (
               <span className={`badge ${liveStock.change >= 0 ? 'bg-success' : 'bg-danger'}`}>
@@ -211,7 +162,7 @@ const StockCard = ({ stock, onRemove }: StockCardProps) => {
           </div>
         ) : (
           <div className="d-flex gap-2 mb-3">
-            <span className="badge bg-secondary">Login Required</span>
+            <span className="badge bg-secondary">No price yet</span>
           </div>
         )}
 
@@ -266,6 +217,7 @@ const StockCard = ({ stock, onRemove }: StockCardProps) => {
             <div className="chart-container">
               <SimpleChart 
                 symbol={liveStock.symbol} 
+                exchange={liveStock.exchange}
                 width={280} 
                 height={140}
                 className="w-100"

@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import KiteConnectAPI from '../services/kiteConnectAPI'
+import { getHistoricalData } from '../services/stockService'
 
 interface SimpleChartProps {
   symbol: string
+  exchange?: string
   width?: number
   height?: number
   className?: string
 }
 
-const kiteAPI = KiteConnectAPI.getInstance()
-
-function SimpleChart({ symbol, width = 300, height = 150, className = "" }: SimpleChartProps) {
+function SimpleChart({ symbol, exchange = 'NSE', width = 300, height = 150, className = "" }: SimpleChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isLoading, setIsLoading] = useState(false)
 
@@ -40,16 +39,8 @@ function SimpleChart({ symbol, width = 300, height = 150, className = "" }: Simp
       
       setIsLoading(true)
       try {
-        // Check authentication before making API calls
-        if (!kiteAPI.isReady()) {
-          console.warn('Authentication required for historical data, using sample data')
-          return generateSampleData()
-        }
-        
-        const toDate = new Date()
-        const fromDate = new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000) // 30 days ago
-        
-        const historicalData = await kiteAPI.getHistoricalData(symbol, fromDate, toDate, 'day')
+        // Served from Firestore; the API is only hit once per day per stock
+        const historicalData = await getHistoricalData(symbol, exchange, '1month')
         
         if (historicalData && historicalData.length > 0) {
           return historicalData.map(point => point.close)
@@ -193,7 +184,7 @@ function SimpleChart({ symbol, width = 300, height = 150, className = "" }: Simp
     return () => {
       isMounted = false // Mark component as unmounted
     }
-  }, [symbol, width, height])
+  }, [symbol, exchange, width, height])
 
   // Get change data from canvas
   const canvas = canvasRef.current
@@ -228,14 +219,6 @@ function SimpleChart({ symbol, width = 300, height = 150, className = "" }: Simp
             aspectRatio: `${width}/${height}`
           }}
         />
-        {!kiteAPI.isReady() && (
-          <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-light bg-opacity-75 rounded">
-            <div className="text-center">
-              <div className="text-muted small">📊 Sample Chart Data</div>
-              <div className="text-muted small">Login for live historical data</div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )

@@ -133,7 +133,7 @@ function EnhancedChart({
 
         // No data in DB and API not ready — show informative state, do NOT use fake data
         console.warn(`⚠️ NO DATA for ${symbol} (${duration}) — API authentication required`);
-        setError('No data — login to KiteConnect to fetch');
+        setError('No price history available');
         if (onError) onError(symbol, true, 'Failed to load fresh data');
         return null;
       } catch (error) {
@@ -437,7 +437,7 @@ function EnhancedChart({
           </div>
         )}
         {/* Only show overlay when user explicitly wants live data but API is unavailable */}
-        {!kiteAPI.isReady() && liveDataEnabled && (
+        {!kiteAPI.canFetchData() && liveDataEnabled && (
           <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-warning bg-opacity-75 rounded">
             <div className="text-center px-2">
               <div className="fw-semibold small">⚠️ KiteConnect login required</div>
@@ -446,7 +446,7 @@ function EnhancedChart({
           </div>
         )}
         {/* Show a no-data overlay when API is not ready and no cached data exists */}
-        {!kiteAPI.isReady() && !liveDataEnabled && error && (
+        {!kiteAPI.canFetchData() && !liveDataEnabled && error && (
           <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-light bg-opacity-90 rounded">
             <div className="text-center px-2">
               <div className="text-muted small">📭 No cached data</div>

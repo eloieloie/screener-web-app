@@ -38,6 +38,10 @@ export default defineConfig({
           'Accept': 'application/json'
         }
       },
+      // Free market data (Yahoo/NSE) + NSE industry classification live only in
+      // the local server until the Firebase function is updated.
+      '/api/free': { target: 'http://localhost:3001', changeOrigin: true, secure: false, timeout: 30000 },
+      '/api/instruments/nse/industry-classification': { target: 'http://localhost:3001', changeOrigin: true, secure: false, timeout: 30000 },
       // Proxy remaining API requests to the live production backend (Firebase Function)
       '/api': {
         target: 'https://api-gx4qle7k5q-uc.a.run.app',

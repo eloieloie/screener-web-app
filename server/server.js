@@ -8,6 +8,7 @@ import { KiteConnect } from 'kiteconnect';
 import dotenv from 'dotenv';
 import cron from 'node-cron';
 import { getAutoLoginRequestToken } from './kiteAutoLogin.js';
+import freeDataRouter from './freeData.js';
 
 // Load environment variables
 dotenv.config();
@@ -58,6 +59,11 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Free, login-less market data (Yahoo Finance + NSE archive). Mounted BEFORE the
+// global rate limiter: it has its own queue + cache, and the charts page fires
+// one request per stock, which would otherwise trip the 1000/15min limit.
+app.use('/api/free', freeDataRouter);
 
 // Rate limiting
 const limiter = rateLimit({
@@ -845,7 +851,7 @@ const ensureNseIndustryCache = async (forceRefresh = false) => {
   return nseIndustryCache;
 };
 
-app.get('/api/instruments/nse/industry-classification', requireAuth, async (req, res) => {
+app.get('/api/instruments/nse/industry-classification', async (req, res) => {
   try {
     const forceRefresh = req.query.refresh === 'true';
     if (forceRefresh) { nseIndustryCache = null; nseIndustryCacheTime = null; }

@@ -237,6 +237,7 @@ const StockTable = ({ stocks, onRemoveStock, onNavigateToChartsWithTag, onRefres
                             <div className="d-flex justify-content-center">
                               <SimpleChart
                                 symbol={stock.symbol}
+                                exchange={stock.exchange}
                                 width={600}
                                 height={200}
                                 className="w-100"

@@ -206,20 +206,19 @@ const getHistoricalDataFromCache = async (
     const points = cachedData.data || [];
 
     let lastDataDate: Date | null = null;
-    let isStale = true;
-
     // Fresh = we already pulled from Zerodha today (local date), regardless of
     // whether the market produced a new candle (weekends/holidays/intraday).
     const fetchedToday = !!cachedData.updatedAt &&
       toLocalDateStr(cachedData.updatedAt.toDate()) === toLocalDateStr(new Date());
+
+    // Fresh = pulled today, even if the result was empty (symbol has no data).
+    const isStale = !fetchedToday;
 
     if (points.length > 0) {
       const lastPoint = points[points.length - 1];
       // Normalise to YYYY-MM-DD regardless of whether the date field has a time component
       const lastPointDateStr = lastPoint.date.split('T')[0];
       const lastTradingDayStr = getLastTradingDayStr();
-
-      isStale = !fetchedToday;
 
       lastDataDate = new Date(lastPointDateStr);
 
@@ -280,7 +279,7 @@ export const getHistoricalData = async (
         cacheExists = true;
 
         // Data is fresh enough — return immediately without hitting the API
-        if (!cacheResult.isStale && existingData.length > 0) {
+        if (!cacheResult.isStale) {
           console.log(`✅ CACHE IS FRESH — returning ${existingData.length} points for ${symbol}`);
           return existingData;
         }
@@ -288,7 +287,7 @@ export const getHistoricalData = async (
     }
 
     // ── Step 2: If API is unavailable, serve existing DB data ────────────────
-    if (!kiteAPI.isReady()) {
+    if (!kiteAPI.canFetchData()) {
       if (cacheExists && existingData.length > 0) {
         console.log(`⚠️ API not ready — serving ${existingData.length} cached points for ${symbol}`);
         return existingData;
@@ -331,7 +330,9 @@ export const getHistoricalData = async (
     // ── Step 6: Persist the updated dataset ──────────────────────────────────
     // Saved even when nothing new arrived, so updatedAt marks "pulled today"
     // and we don't hit Zerodha again until tomorrow.
-    if (trimmed.length > 0) {
+    // (An empty result is saved too — marks "no data today" so we don't retry on every load.
+    //  Real API errors throw above and are never saved.)
+    {
       await saveHistoricalDataToCache(symbol, exchange, duration, trimmed);
       console.log(`💾 SAVED ${trimmed.length} points to DB for ${symbol} (${duration})`);
     }
@@ -464,7 +465,7 @@ export const refreshStockPrice = async (stockId: string, symbol: string, exchang
     console.log(`Refreshing price for ${symbol} on ${exchange}`);
     
     // Check if API is authenticated
-    if (!kiteAPI.isReady()) {
+    if (!kiteAPI.canFetchData()) {
       throw new Error('KiteConnect API not authenticated. Please log in to Zerodha to refresh stock prices.');
     }
     
@@ -519,7 +520,7 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
       if (newTags.length === 0) {
         console.log(`All tags already exist for ${stockData.symbol}. No updates needed.`);
       // Return existing stock data with live prices if available
-      if (kiteAPI.isReady()) {
+      if (kiteAPI.canFetchData()) {
         const stockDetails = await kiteAPI.getStockQuote(stockData.symbol, stockData.exchange);
         if (stockDetails) {
           return {
@@ -549,7 +550,7 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
       
       // Return updated stock data with live prices if available
       const updatedTags = [...existingStock.tags, ...newTags];
-      if (kiteAPI.isReady()) {
+      if (kiteAPI.canFetchData()) {
         const stockDetails = await kiteAPI.getStockQuote(stockData.symbol, stockData.exchange);
         if (stockDetails) {
           return {
@@ -579,7 +580,7 @@ export const addStock = async (stockData: AddStockForm): Promise<Stock> => {
     console.log(`Creating new stock entry for ${stockData.symbol}`);
     
     // Check if API is authenticated before trying to verify stock
-    if (!kiteAPI.isReady()) {
+    if (!kiteAPI.canFetchData()) {
       console.warn('API not authenticated - adding stock metadata only');
       
       // Add only metadata without API verification

@@ -233,14 +233,10 @@ class KiteConnectAPI {
    */
   async getStockQuote(symbol: string, exchange?: string): Promise<Stock | null> {
     try {
-      if (!this.isAuthenticated) {
-        throw new Error('KiteConnect API not authenticated. Please login to access live stock data.');
-      }
-
       // Build URL with exchange parameter if provided
       const url = exchange 
-        ? `/api/stocks/quote/${symbol}?exchange=${exchange}`
-        : `/api/stocks/quote/${symbol}`;
+        ? `${this.dataBase}/stocks/quote/${symbol}?exchange=${exchange}`
+        : `${this.dataBase}/stocks/quote/${symbol}`;
       
       const response = await this.makeRequest<StockResponse>(url);
       
@@ -264,11 +260,7 @@ class KiteConnectAPI {
    */
   async getMultipleQuotes(symbols: string[]): Promise<Stock[]> {
     try {
-      if (!this.isAuthenticated) {
-        throw new Error('KiteConnect API not authenticated. Please login to access live stock data.');
-      }
-
-      const response = await this.makeRequest<StockResponse>('/api/stocks/multiple', {
+      const response = await this.makeRequest<StockResponse>(`${this.dataBase}/stocks/multiple`, {
         method: 'POST',
         body: JSON.stringify({ symbols }),
       });
@@ -289,11 +281,7 @@ class KiteConnectAPI {
    */
   async getTopStocks(limit: number = 50): Promise<Stock[]> {
     try {
-      if (!this.isAuthenticated) {
-        throw new Error('KiteConnect API not authenticated. Please login to access top stocks data.');
-      }
-
-      const response = await this.makeRequest<StockResponse>(`/api/stocks/top?limit=${limit}`);
+      const response = await this.makeRequest<StockResponse>(`${this.dataBase}/stocks/top?limit=${limit}`);
       
       if (response.success && Array.isArray(response.data)) {
         return response.data as Stock[];
@@ -316,15 +304,11 @@ class KiteConnectAPI {
     interval: string = 'day'
   ): Promise<HistoricalDataPoint[]> {
     try {
-      if (!this.isAuthenticated) {
-        throw new Error('KiteConnect API not authenticated. Please login to access historical data.');
-      }
-
       const fromStr = from.toISOString().split('T')[0];
       const toStr = to.toISOString().split('T')[0];
       
       const response = await this.makeRequest<HistoricalResponse>(
-        `/api/stocks/historical/${symbol}?from=${fromStr}&to=${toStr}&interval=${interval}`
+        `${this.dataBase}/stocks/historical/${symbol}?from=${fromStr}&to=${toStr}&interval=${interval}`
       );
       
       if (response.success) {
@@ -348,10 +332,7 @@ class KiteConnectAPI {
    * Requires active Zerodha auth.
    */
   async getNseEquities(forceRefresh = false): Promise<NseEquity[]> {
-    if (!this.isAuthenticated) {
-      throw new Error('KiteConnect API not authenticated. Please login to access NSE instruments.');
-    }
-    const url = forceRefresh ? '/api/instruments/nse/equity?refresh=true' : '/api/instruments/nse/equity';
+    const url = `${this.dataBase}/instruments/nse/equity${forceRefresh ? '?refresh=true' : ''}`;
     const response = await this.makeRequest<NseEquityListResponse>(url);
     if (response.success) return response.data;
     throw new Error('Failed to fetch NSE equity list');
@@ -361,12 +342,9 @@ class KiteConnectAPI {
    * Fetch NSE's official industry classification (symbol -> Industry), sourced
    * from NSE's own index-constituent archive rather than Kite — Kite Connect
    * itself has no sector/industry data. Only covers index-member stocks.
-   * Requires active Zerodha auth (same gating as getNseEquities).
+   * No login required — it is a public NSE archive.
    */
   async getNseIndustryClassification(forceRefresh = false): Promise<Record<string, string>> {
-    if (!this.isAuthenticated) {
-      throw new Error('KiteConnect API not authenticated. Please login to access NSE industry classification.');
-    }
     const url = forceRefresh
       ? '/api/instruments/nse/industry-classification?refresh=true'
       : '/api/instruments/nse/industry-classification';
@@ -380,14 +358,10 @@ class KiteConnectAPI {
    */
   async getMarketStatus(): Promise<string> {
     try {
-      if (!this.isAuthenticated) {
-        throw new Error('KiteConnect API not authenticated. Please login to access market status.');
-      }
-
       const response = await this.makeRequest<{
         success: boolean;
         status: string;
-      }>('/api/stocks/market-status');
+      }>(`${this.dataBase}/stocks/market-status`);
       
       if (response.success) {
         return response.status === 'open' ? 'Market is open' : 'Market is closed';
@@ -447,6 +421,18 @@ class KiteConnectAPI {
    */
   isReady(): boolean {
     return this.isAuthenticated;
+  }
+
+  /**
+   * Market data (quotes, history, instruments) is always available: it comes
+   * from the Kite-backed routes when logged in, else the free Yahoo/NSE routes.
+   */
+  canFetchData(): boolean {
+    return true;
+  }
+
+  private get dataBase(): string {
+    return this.isAuthenticated ? '/api' : '/api/free';
   }
 
   /**
