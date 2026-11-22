@@ -124,7 +124,7 @@ function EnhancedChart({
 
     const fetchHistoricalData = async (): Promise<HistoricalDataPoint[] | null> => {
       try {
-        const historicalData = await getHistoricalData(symbol, exchange, duration, liveDataEnabled);
+        const historicalData = await getHistoricalData(symbol, exchange, duration, false);
 
         if (historicalData && historicalData.length > 0) {
           console.log(`✅ CHART DATA LOADED: ${symbol} (${duration}) — ${historicalData.length} points`);

@@ -3,6 +3,7 @@ import { motion } from 'motion/react'
 import type { Stock } from '../types/Stock'
 import EnhancedChart from '../components/EnhancedChart'
 import ChartModal from '../components/ChartModal'
+import { subscribeToWatchlists, deleteWatchlist, type Watchlist } from '../services/watchlistService'
 import { subscribeToStocks } from '../services/stockService'
 
 const BATCH_SIZE = 10
@@ -64,12 +65,17 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
   }, [])
 
   // Filter stocks based on selected tag
+  const [watchlists, setWatchlists] = useState<Watchlist[]>([])
+  const [selectedWatchlistId, setSelectedWatchlistId] = useState('')
+  useEffect(() => subscribeToWatchlists(setWatchlists), [])
+  const selectedWatchlist = watchlists.find(w => w.id === selectedWatchlistId)
+
   const filteredStocks = useMemo(() => {
-    if (!selectedTag) return stocks
-    return stocks.filter(stock => 
-      stock.tags && stock.tags.includes(selectedTag)
-    )
-  }, [stocks, selectedTag])
+    let result = stocks
+    if (selectedTag) result = result.filter(stock => stock.tags && stock.tags.includes(selectedTag))
+    if (selectedWatchlist) result = result.filter(stock => selectedWatchlist.stockIds.includes(stock.id))
+    return result
+  }, [stocks, selectedTag, selectedWatchlist])
 
   // Stable key for the current set of filtered stocks (avoids re-firing on price-only updates)
   const filteredStockKey = useMemo(
@@ -228,6 +234,37 @@ const ChartsPage = ({ selectedTag, onClearTagFilter }: ChartsPageProps) => {
           </p>
         </div>
         <div className="d-flex align-items-center gap-3">
+          {/* Watchlist filter */}
+          <div className="d-flex align-items-center gap-1">
+            <select
+              className="form-select form-select-sm"
+              value={selectedWatchlistId}
+              onChange={e => setSelectedWatchlistId(e.target.value)}
+              aria-label="Watchlist"
+            >
+              <option value="">★ All stocks</option>
+              {watchlists.map(w => (
+                <option key={w.id} value={w.id}>{w.name} ({w.stockIds.length})</option>
+              ))}
+            </select>
+            {selectedWatchlist && (
+              <button
+                className="btn btn-outline-danger btn-sm"
+                title="Delete this watchlist"
+                onClick={async () => {
+                  if (!window.confirm(`Delete watchlist "${selectedWatchlist.name}"? Stocks themselves are kept.`)) return
+                  try {
+                    await deleteWatchlist(selectedWatchlist.id)
+                    setSelectedWatchlistId('')
+                  } catch (err) {
+                    console.error('Error deleting watchlist:', err)
+                  }
+                }}
+              >
+                🗑
+              </button>
+            )}
+          </div>
           {/* Live Data Toggle */}
           <div className="form-check form-switch">
             <input 

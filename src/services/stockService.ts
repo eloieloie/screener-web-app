@@ -111,6 +111,9 @@ const getLastTradingDayStr = (): string => {
   return lastTrading.toISOString().split('T')[0];
 };
 
+const toLocalDateStr = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 // Historical data caching functions
 const getHistoricalDataCacheKey = (symbol: string, exchange: string, duration: string): string => {
   return `${symbol}_${exchange}_${duration}`;
@@ -205,14 +208,18 @@ const getHistoricalDataFromCache = async (
     let lastDataDate: Date | null = null;
     let isStale = true;
 
+    // Fresh = we already pulled from Zerodha today (local date), regardless of
+    // whether the market produced a new candle (weekends/holidays/intraday).
+    const fetchedToday = !!cachedData.updatedAt &&
+      toLocalDateStr(cachedData.updatedAt.toDate()) === toLocalDateStr(new Date());
+
     if (points.length > 0) {
       const lastPoint = points[points.length - 1];
       // Normalise to YYYY-MM-DD regardless of whether the date field has a time component
       const lastPointDateStr = lastPoint.date.split('T')[0];
       const lastTradingDayStr = getLastTradingDayStr();
 
-      // Fresh = cache already contains data up to (or beyond) the last trading day
-      isStale = lastPointDateStr < lastTradingDayStr;
+      isStale = !fetchedToday;
 
       lastDataDate = new Date(lastPointDateStr);
 
@@ -322,6 +329,8 @@ export const getHistoricalData = async (
     const trimmed = trimToWindow(merged, windowStart);
 
     // ── Step 6: Persist the updated dataset ──────────────────────────────────
+    // Saved even when nothing new arrived, so updatedAt marks "pulled today"
+    // and we don't hit Zerodha again until tomorrow.
     if (trimmed.length > 0) {
       await saveHistoricalDataToCache(symbol, exchange, duration, trimmed);
       console.log(`💾 SAVED ${trimmed.length} points to DB for ${symbol} (${duration})`);

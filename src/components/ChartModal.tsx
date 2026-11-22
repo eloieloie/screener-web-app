@@ -3,6 +3,13 @@ import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
 import EnhancedChart from './EnhancedChart'
 import type { Stock } from '../types/Stock'
+import {
+  subscribeToWatchlists,
+  createWatchlist,
+  addStockToWatchlist,
+  removeStockFromWatchlist,
+  type Watchlist
+} from '../services/watchlistService'
 
 export type ChartDuration = '1month' | '3months' | '6months' | '1year' | '3years' | '5years'
 
@@ -38,6 +45,46 @@ export default function ChartModal({ stock, initialDuration = '6months', liveDat
       document.body.style.overflow = previousOverflow
     }
   }, [onClose])
+
+  const [watchlists, setWatchlists] = useState<Watchlist[]>([])
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [wlError, setWlError] = useState<string | null>(null)
+
+  useEffect(() => subscribeToWatchlists(setWatchlists), [])
+
+  const savedIn = watchlists.filter(w => w.stockIds.includes(stock.id))
+
+  const runWatchlistAction = async (action: () => Promise<unknown>) => {
+    try {
+      setWlError(null)
+      await action()
+    } catch (err) {
+      console.error('Watchlist error:', err)
+      setWlError(err instanceof Error ? err.message : 'Something went wrong')
+    }
+  }
+
+  const toggleInWatchlist = (list: Watchlist) =>
+    runWatchlistAction(() =>
+      list.stockIds.includes(stock.id)
+        ? removeStockFromWatchlist(list.id, stock.id)
+        : addStockToWatchlist(list.id, stock.id)
+    )
+
+  const handleCreate = (e: React.FormEvent) => {
+    e.preventDefault()
+    const name = newName.trim()
+    if (!name) return
+    if (watchlists.some(w => w.name.toLowerCase() === name.toLowerCase())) {
+      setWlError(`A watchlist named "${name}" already exists`)
+      return
+    }
+    runWatchlistAction(async () => {
+      await createWatchlist(name, [stock.id])
+      setNewName('')
+    })
+  }
 
   const isPositive = (stock.changePercent ?? 0) >= 0
 
@@ -100,12 +147,62 @@ export default function ChartModal({ stock, initialDuration = '6months', liveDat
                 )}
               </div>
             </div>
-            <button
-              type="button"
-              className="btn-close"
-              aria-label="Close"
-              onClick={onClose}
-            />
+            <div className="d-flex align-items-start gap-3">
+              <div className="position-relative">
+                <button
+                  type="button"
+                  className={`btn btn-sm ${savedIn.length > 0 ? 'btn-warning' : 'btn-outline-primary'}`}
+                  onClick={() => setMenuOpen(o => !o)}
+                  aria-expanded={menuOpen}
+                >
+                  {savedIn.length > 0 ? '★' : '☆'} Watchlist{savedIn.length > 0 ? ` (${savedIn.length})` : ''}
+                </button>
+                {menuOpen && (
+                  <div
+                    className="bg-white border rounded shadow p-2"
+                    style={{ position: 'absolute', right: 0, top: '110%', width: 260, zIndex: 10 }}
+                  >
+                    <div className="small text-muted px-1 pb-1">Add to watchlist</div>
+                    <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                      {watchlists.length === 0 && (
+                        <div className="small text-muted px-1 py-2">No watchlists yet — create one below.</div>
+                      )}
+                      {watchlists.map(list => (
+                        <label key={list.id} className="d-flex align-items-center gap-2 px-1 py-1" style={{ cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            className="form-check-input mt-0"
+                            checked={list.stockIds.includes(stock.id)}
+                            onChange={() => toggleInWatchlist(list)}
+                          />
+                          <span className="flex-grow-1 text-truncate">{list.name}</span>
+                          <span className="badge bg-light text-secondary border">{list.stockIds.length}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <form className="d-flex gap-1 border-top pt-2 mt-2" onSubmit={handleCreate}>
+                      <input
+                        className="form-control form-control-sm"
+                        placeholder="New watchlist name"
+                        value={newName}
+                        maxLength={40}
+                        onChange={e => setNewName(e.target.value)}
+                      />
+                      <button type="submit" className="btn btn-sm btn-primary" disabled={!newName.trim()}>
+                        Create
+                      </button>
+                    </form>
+                    {wlError && <div className="text-danger small mt-1">{wlError}</div>}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                className="btn-close"
+                aria-label="Close"
+                onClick={onClose}
+              />
+            </div>
           </div>
 
           {/* Duration selector */}
