@@ -3,7 +3,9 @@ import { motion, AnimatePresence } from 'motion/react'
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth'
 import { auth } from './config/firebase'
 import Analytics from './components/Analytics'
-import AuthenticationStatus from './components/AuthenticationStatus'
+import KiteConnectAPI from './services/kiteConnectAPI'
+import NavBar, { type Page } from './components/NavBar'
+import KitePage from './pages/KitePage'
 import StocksPage from './pages/StocksPage'
 import ChartsPage from './pages/ChartsPage'
 import BulkStocksPage from './pages/BulkStocksPage'
@@ -14,7 +16,11 @@ import RegisterPage from './pages/RegisterPage'
 import ChangePasswordModal from './components/ChangePasswordModal'
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<'dashboard' | 'stocks' | 'bulk' | 'charts' | 'analytics' | 'nse-import' | 'test-trade'>('dashboard')
+  // Zerodha redirects back with ?request_token=..., which the Kite page must handle
+  const [currentPage, setCurrentPage] = useState<Page>(() =>
+    new URLSearchParams(window.location.search).has('request_token') ? 'kite' : 'dashboard'
+  )
+  const [kiteConnected, setKiteConnected] = useState(false)
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
   const [user, setUser] = useState<User | null | undefined>(undefined)
   const [showChangePassword, setShowChangePassword] = useState(false)
@@ -23,6 +29,12 @@ function App() {
   useEffect(() => {
     return onAuthStateChanged(auth, u => setUser(u))
   }, [])
+
+  useEffect(() => {
+    if (!user || new URLSearchParams(window.location.search).has('request_token')) return
+    const kite = KiteConnectAPI.getInstance()
+    kite.checkAuthStatus().then(() => setKiteConnected(kite.isReady()))
+  }, [user])
 
   if (user === undefined) {
     return (
@@ -58,100 +70,17 @@ function App() {
 
   return (
     <div className="min-vh-100 bg-light">
-      {/* Bootstrap Navigation */}
-      <nav className="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
-        <div className="container">
-          <motion.span
-            className="navbar-brand h1 mb-0"
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.3 }}
-          >
-            📊 Stock Screener
-          </motion.span>
-          <div className="navbar-nav ms-auto">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className={`btn ${currentPage === 'dashboard' ? 'btn-primary' : 'btn-outline-primary'} me-2`}
-              onClick={() => setCurrentPage('dashboard')}
-            >
-              🏠 Dashboard
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className={`btn ${currentPage === 'stocks' ? 'btn-primary' : 'btn-outline-primary'} me-2`}
-              onClick={() => setCurrentPage('stocks')}
-            >
-              📊 Stocks List
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className={`btn ${currentPage === 'bulk' ? 'btn-primary' : 'btn-outline-primary'} me-2`}
-              onClick={() => setCurrentPage('bulk')}
-            >
-              📦 Bulk Add
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className={`btn ${currentPage === 'charts' ? 'btn-primary' : 'btn-outline-primary'} me-2`}
-              onClick={() => {
-                clearTagFilter()
-                setCurrentPage('charts')
-              }}
-            >
-              📈 Charts
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className={`btn ${currentPage === 'analytics' ? 'btn-primary' : 'btn-outline-primary'} me-2`}
-              onClick={() => setCurrentPage('analytics')}
-            >
-              📊 Analytics
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className={`btn ${currentPage === 'nse-import' ? 'btn-warning' : 'btn-outline-warning'} me-2`}
-              onClick={() => setCurrentPage('nse-import')}
-              title="Temporary page — remove after permanent pipeline is set up"
-            >
-              🗂️ NSE Import
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className={`btn ${currentPage === 'test-trade' ? 'btn-danger' : 'btn-outline-danger'} me-2`}
-              onClick={() => setCurrentPage('test-trade')}
-              title="Temporary page — places LIVE orders, remove after plan is verified"
-            >
-              🧪 Trade Test
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="btn btn-outline-secondary me-2"
-              onClick={() => setShowChangePassword(true)}
-              title="Change your password"
-            >
-              🔒 Change Password
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="btn btn-outline-danger"
-              onClick={() => signOut(auth)}
-              title={`Signed in as ${user.email}`}
-            >
-              Sign Out
-            </motion.button>
-          </div>
-        </div>
-      </nav>
+      <NavBar
+        currentPage={currentPage}
+        onNavigate={page => {
+          if (page === 'charts') clearTagFilter()
+          setCurrentPage(page)
+        }}
+        userEmail={user.email}
+        kiteConnected={kiteConnected}
+        onChangePassword={() => setShowChangePassword(true)}
+        onSignOut={() => signOut(auth)}
+      />
 
       {showChangePassword && (
         <ChangePasswordModal user={user} onClose={() => setShowChangePassword(false)} />
@@ -168,9 +97,6 @@ function App() {
           >
             {currentPage === 'dashboard' ? (
               <>
-                {/* Authentication Status */}
-                <AuthenticationStatus />
-
                 {/* Quick Actions */}
                 <div className="row">
                   <div className="col-12">
@@ -216,6 +142,8 @@ function App() {
                   </div>
                 </div>
               </>
+            ) : currentPage === 'kite' ? (
+              <KitePage onAuthChange={setKiteConnected} />
             ) : currentPage === 'stocks' ? (
               <StocksPage onNavigateToChartsWithTag={navigateToChartsWithTag} />
             ) : currentPage === 'bulk' ? (

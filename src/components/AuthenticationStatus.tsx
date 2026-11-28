@@ -156,11 +156,11 @@ const AuthenticationStatus: React.FC<AuthenticationStatusProps> = ({ onAuthChang
               </button>
               
               {/* Troubleshooting Section */}
-              <div className="mt-2 p-2 bg-light rounded">
-                <small className="text-muted">
-                  <strong>🔧 Troubleshooting Login Issues:</strong>
-                </small>
-                <ul className="small text-muted mt-1 mb-1" style={{ fontSize: '0.75rem' }}>
+              <details className="mt-2 p-2 bg-light rounded">
+                <summary className="small text-muted fw-bold" style={{ cursor: 'pointer' }}>
+                  Troubleshooting login issues
+                </summary>
+                <ul className="small text-muted mt-2 mb-1" style={{ fontSize: '0.75rem' }}>
                   <li>If button doesn't respond, check browser console for errors</li>
                   <li>Ensure pop-ups are enabled for this site</li>
                   <li>CORS errors? Make sure dev server runs on port 5174 (not 5175)</li>
@@ -171,7 +171,7 @@ const AuthenticationStatus: React.FC<AuthenticationStatusProps> = ({ onAuthChang
                   <li><strong>Not redirecting back?</strong> Check if redirect URI is configured in Zerodha app settings</li>
                   <li><strong>Stuck loading?</strong> The redirect URI must match exactly: <code>http://localhost:5174</code></li>
                 </ul>
-              </div>
+              </details>
               
               <small className="text-muted">
                 You need to authenticate with Zerodha to access live stock data
